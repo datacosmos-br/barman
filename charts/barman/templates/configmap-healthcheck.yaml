@@ -1,0 +1,41 @@
+{{- if .Values.healthCheck.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "barman.fullname" . }}-healthcheck
+  labels:
+    {{- include "barman.labels" . | nindent 4 }}
+data:
+  healthcheck.sh: |
+    #!/bin/bash
+    # Health check do Barman. Sai != 0 (probe falha -> pod NotReady ->
+    # Deployment/ArgoCD degradado) quando o backup NÃO está saudável:
+    #   - nenhum servidor PostgreSQL configurado em barman.backups[]
+    #   - conexão / replicação (streaming) / WAL archive / slot com falha
+    #   - backups agendados falhando (check "failed backups" do barman)
+    # A falha "minimum redundancy" (esperada antes do 1o backup) é
+    # ignorável via HC_IGNORE_CHECKS (parametrizável no values).
+    set -uo pipefail
+    IGNORE="${HC_IGNORE_CHECKS:-}"
+    servers="$(barman list-server --minimal 2>/dev/null)"
+    if [ -z "${servers}" ]; then
+      echo "HEALTHCHECK FAIL: nenhum servidor barman configurado (barman.backups[])"
+      exit 1
+    fi
+    rc=0
+    for srv in ${servers}; do
+      out="$(barman check "${srv}" 2>&1)"
+      failed="$(printf '%s\n' "${out}" | grep -E ':[[:space:]]+FAILED' || true)"
+      if [ -n "${IGNORE}" ]; then
+        failed="$(printf '%s\n' "${failed}" | grep -vE "${IGNORE}" || true)"
+      fi
+      if [ -n "${failed}" ]; then
+        echo "HEALTHCHECK FAIL [${srv}]:"
+        printf '%s\n' "${failed}"
+        rc=1
+      else
+        echo "HEALTHCHECK OK [${srv}]"
+      fi
+    done
+    exit ${rc}
+{{- end }}

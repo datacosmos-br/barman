@@ -2,7 +2,7 @@ apiVersion: v2
 name: barman
 type: application
 description: Helm chart for Barman — Backup and Recovery Manager for PostgreSQL (with barman-cli-cloud support).
-version: 1.0.0
+version: 1.1.0
 appVersion: "3.18.0"
 keywords:
   - barman

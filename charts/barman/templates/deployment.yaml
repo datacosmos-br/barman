@@ -55,6 +55,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "barman.fullname" . }}-config
+          {{- if .Values.healthCheck.enabled }}
+          env:
+            - name: HC_IGNORE_CHECKS
+              value: {{ .Values.healthCheck.ignoreChecks | quote }}
+          {{- end }}
           volumeMounts:
             - mountPath: /var/lib/barman
               name: data
@@ -76,11 +81,35 @@ spec:
             - mountPath: /entrypoint.sh
               name: barman-entrypoint
               subPath: entrypoint.sh
+          {{- if .Values.healthCheck.enabled }}
+            - mountPath: /scripts/healthcheck.sh
+              name: barman-healthcheck
+              subPath: healthcheck.sh
+          {{- end }}
           {{- with .Values.deployment.additionalVolumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end  }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.healthCheck.enabled }}
+          # startupProbe: espera o barman inicializar (servidores carregados).
+          startupProbe:
+            exec:
+              command: ["/bin/bash", "-c", "barman list-server --minimal | grep -q ."]
+            initialDelaySeconds: {{ .Values.healthCheck.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.healthCheck.startupProbe.failureThreshold }}
+          # readinessProbe: roda o health check; FALHA (pod NotReady ->
+          # Deployment/ArgoCD degradado) se algum banco/replicacao/backup
+          # agendado estiver quebrado.
+          readinessProbe:
+            exec:
+              command: ["/bin/bash", "-c", "su barman -c 'bash /scripts/healthcheck.sh'"]
+            initialDelaySeconds: {{ .Values.healthCheck.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.readinessProbe.failureThreshold }}
+          {{- end }}
 {{- if .Values.deployment.initContainers }}
       initContainers:
         {{- if eq (typeOf .Values.deployment.initContainers) "string" }}
@@ -121,6 +150,12 @@ spec:
           configMap:
             name: {{ include "barman.fullname" . }}-entrypoint
             defaultMode: 0775
+        {{- if .Values.healthCheck.enabled }}
+        - name: barman-healthcheck
+          configMap:
+            name: {{ include "barman.fullname" . }}-healthcheck
+            defaultMode: 0775
+        {{- end }}
       {{- with .Values.deployment.additionalVolumes }}
         {{- toYaml . | nindent 8 }}
       {{- end  }}

@@ -1,47 +1,67 @@
-# barman-docker
+# barman (DataCosmos fork)
 
-[![Docker](https://github.com/basalam/barman-docker/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/basalam/barman-docker/actions/workflows/docker-publish.yml)
-[![Docker Tags](https://ghcr-badge.egpl.dev/basalam/barman-docker/tags?trim=major&color=green_2&label=Docker%20Tags)](https://ghcr.io/basalam/barman-docker/)
-[![Docker Tags](https://ghcr-badge.egpl.dev/basalam/barman-docker/tags?trim=patch&color=green_2&label=Docker%20Tags)](https://ghcr.io/basalam/barman-docker/)
+DataCosmos fork of [barman-docker](https://github.com/basalam/barman-docker) —
+container image **and** Helm chart for [Barman](https://github.com/EnterpriseDB/barman),
+the *Backup and Recovery Manager for PostgreSQL*.
 
-Automatically made [barman](https://github.com/EnterpriseDB/barman/) Docker images
+This fork adds, on top of upstream:
 
-Based on [ubc/barman-docker](https://github.com/ubc/barman-docker)
+* a **`-dc` container image** — Debian bookworm, **Barman 3.18** with
+  `barman[cloud,zstandard,lz4]` (includes the `barman-cloud-*` tools for
+  S3-compatible object storage), built **multi-arch** (`linux/amd64` +
+  `linux/arm64`);
+* a **Helm chart** (`charts/barman/`) — multi-database, in-cluster **and**
+  external PostgreSQL, every Barman capability parameterizable, with a
+  **health check** that degrades the workload when a backup is broken;
+* a single **publish GitHub Action** and an **upstream-sync** workflow.
 
-## Why?
+---
 
-Every barman Docker image made manually But we want to have something to be automatically built and ready to use
+## Artifacts
 
-With the help of github actions `schedule` feature we are using we are check for realeses every night and if the release is new we will build it.
+| Artifact | Location |
+|----------|----------|
+| Container image | `ghcr.io/datacosmos-br/barman` — tags `<barman>-dc<N>` (e.g. `3.18.0-dc2`) and `dc`; multi-arch `amd64`/`arm64` |
+| Helm chart (OCI) | `oci://ghcr.io/datacosmos-br/charts/barman` |
+| GitHub Releases | <https://github.com/datacosmos-br/barman/releases> |
 
-Also we are taking care of nightly releases directly from source code of barman
+> On the first publish, set both GHCR packages to **Public** in the
+> organization package settings.
 
-## Usage
+---
 
-As for images goes we have a `nightly` tag that is up to date with the latest source code from barman
-we have `latest` tag that is connected to the letest (stable) release of barman and of course for each release we have a tag if you want to make your barman deployment version fixed.
+## Helm chart
 
-### Kubernetes
+Full documentation: [`charts/barman/README.md`](./charts/barman/README.md).
 
-This image is tested with [adfinis barman Helm Chart](https://github.com/adfinis/helm-charts/tree/main/charts/barman)
+```sh
+helm install barman oci://ghcr.io/datacosmos-br/charts/barman --version 1.1.0 \
+  -n barman --create-namespace -f my-values.yaml
+```
 
-and you can use it easly by setting the image
+The chart backs up **multiple PostgreSQL servers at once**, in-cluster or
+external, and ships a readinessProbe **health check** that fails when a
+database is unreachable, replication is broken, or a scheduled backup failed.
+See the chart README for the per-database setup instructions (plain/external,
+Bitnami `postgresql-ha`/repmgr, Patroni/TimescaleDB).
 
-### Docker Compose
+---
 
-here is a sample docker-compose file that you can use ;)
+## Container image
 
-> Note that comments are important
+The image runs Barman as a server (continuous WAL streaming via
+`pg_receivewal` + scheduled base backups) and also carries the
+`barman-cloud-*` utilities. Build args: `BARMAN_VERSION`, `SOURCE_INSTALL`.
+
+### Docker Compose (standalone)
 
 ```yaml
-version: "3.3"
-
 services:
   barman:
     restart: always
-    image: ghcr.io/basalam/barman-docker:latest
+    image: ghcr.io/datacosmos-br/barman:dc
     ports:
-      - 127.0.0.1:9780:9780 # Needed for barman exporter
+      - 127.0.0.1:9780:9780   # barman exporter
     environment:
       - DB_HOST=172.17.1.1
       - DB_PORT=5432
@@ -49,11 +69,29 @@ services:
       - DB_SUPERUSER_PASSWORD=supersecret
       - DB_REPLICATION_USER=replication
       - DB_REPLICATION_PASSWORD=supersecretreplication
-      ## Check out other envs from config files templates and entrypoint
-      ## TODO: Make a complete list of envs
     volumes:
-      - ./data:/var/lib/barman:rw # Barman Persistant data
-      - ./recovery-data:/var/lib/barman/recover:rw # Baramn Recover path
-      - /var/log/barman.log:/var/log/barman.log:rw # Barman Logs
-      ## Or you can fully customize configs by making a volume for all of them
+      - ./data:/var/lib/barman:rw
+      - ./recovery-data:/var/lib/barman/recover:rw
 ```
+
+---
+
+## CI / branching
+
+* **`Publish (-dc release)`** (`release-dc.yml`) — one Action: a tag matching
+  `*-dc*` on `main` builds + pushes the multi-arch image, packages + pushes
+  the Helm chart, and creates the GitHub Release.
+* **`Sync upstream`** (`upstream-sync.yml`) — scheduled; opens a PR with
+  upstream `basalam/barman-docker` changes (never touches `main` directly).
+* **`docker-publish.yml`** — the upstream workflow, kept intact.
+* Own features land via Pull Request; upstream changes land via the
+  automatic sync PR.
+
+---
+
+## Credits
+
+Forked from [basalam/barman-docker](https://github.com/basalam/barman-docker)
+(based on [ubc/barman-docker](https://github.com/ubc/barman-docker)). Helm
+chart based on [adfinis/helm-charts](https://github.com/adfinis/helm-charts).
+[Barman](https://github.com/EnterpriseDB/barman) by EnterpriseDB. GPL-3.0.

@@ -90,6 +90,34 @@ secret:
   create: true
 
 # ===========================================================================
+# Health check — a readinessProbe runs `barman check` for every server and
+# makes the pod NotReady (Deployment + ArgoCD show degraded/unhealthy) when
+# the backup is NOT healthy: a database is unreachable, replication/streaming
+# is broken, or a scheduled backup has failed. Fully parameterizable.
+# ===========================================================================
+healthCheck:
+  # -- Enable the health check (readinessProbe + startupProbe)
+  enabled: true
+  # -- `barman check` lines to IGNORE (extended regex). By default ignores
+  # "minimum redundancy" and "backup maximum age" — both fail before the
+  # first backup exists and are not a real failure. The check still fails on
+  # connection, streaming/replication, replication slot, WAL archive and
+  # "failed backups" (a scheduled backup that actually failed).
+  # To require at least one healthy backup, set: ignoreChecks: ""
+  ignoreChecks: "minimum redundancy requirements|backup maximum age"
+  # -- startupProbe: waits until barman has loaded its servers
+  startupProbe:
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    failureThreshold: 30
+  # -- readinessProbe: runs the health check on a schedule
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 60
+    timeoutSeconds: 30
+    failureThreshold: 2
+
+# ===========================================================================
 # Barman configuration. Every Barman capability is parameterizable here:
 #  - barman.globalConfiguration : the [barman] section (global defaults)
 #  - barman.backups[].configuration : per-server overrides ([<scope>] section)
