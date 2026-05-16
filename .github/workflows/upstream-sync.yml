@@ -1,0 +1,43 @@
+name: Sync upstream
+
+# Mantem o fork sincronizado com o upstream basalam/barman-docker.
+# Mudancas do upstream nunca entram direto na main: esta action abre um PR
+# automatico para revisao, preservando as customizacoes -dc.
+# Features proprias entram pela via normal de Pull Request.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open sync PR from upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: "https://github.com/basalam/barman-docker.git"
+          UPSTREAM_BRANCH: "main"
+        run: |
+          git config user.name "datacosmos-sync"
+          git config user.email "noreply@datacosmos.com.br"
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch upstream "$UPSTREAM_BRANCH"
+          if git merge-base --is-ancestor "upstream/$UPSTREAM_BRANCH" origin/main; then
+            echo "Fork ja contem o upstream. Nada a sincronizar."
+            exit 0
+          fi
+          branch="upstream-sync/$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$branch" "upstream/$UPSTREAM_BRANCH"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "chore: sync upstream basalam/barman-docker" --body "Sincronizacao automatica do upstream. Revise conflitos com as customizacoes -dc antes de mesclar."
