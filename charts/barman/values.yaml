@@ -1,0 +1,115 @@
+# Barman Cloud — valores padrão.
+# Cada cluster sobrescreve server.name / objectStore.bucket via o ApplicationSet.
+
+image:
+  repository: ghcr.io/datacosmos-br/barman
+  tag: "3.18.0-dc1"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# PostgreSQL de origem (o servidor cujos bancos serão copiados).
+# Para postgresql-ha (bitnami), apontar ao serviço do primário (pgpool roteia
+# writes; para replicação física use o serviço do StatefulSet do primário).
+# ---------------------------------------------------------------------------
+postgres:
+  host: postgresql-ha-postgresql.postgresql.svc.cluster.local
+  port: 5432
+  user: postgres
+  database: postgres
+
+# Identificador do servidor barman — vira a pasta <prefix>/<server.name>/ no bucket.
+server:
+  name: postgresql-ha
+  # slot de replicação física usado pelo pg_receivewal (criado automaticamente).
+  slot: barman
+
+# ---------------------------------------------------------------------------
+# Destino: object storage S3-compatível (ex.: OCI Object Storage).
+# ---------------------------------------------------------------------------
+objectStore:
+  endpoint: ""            # ex.: https://<ns>.compat.objectstorage.<region>.oraclecloud.com
+  bucket: ""              # nome do bucket (1 por cluster)
+  prefix: barman          # pasta raiz dentro do bucket
+  region: sa-saopaulo-1
+  provider: aws-s3        # barman-cloud --cloud-provider
+
+# ---------------------------------------------------------------------------
+# Credenciais. O Secret deve conter as chaves:
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, PGPASSWORD
+# Use credentials.existingSecret (recomendado: provido por ESO/Vault) OU
+# habilite credentials.externalSecret para o chart renderizar o ExternalSecret.
+# ---------------------------------------------------------------------------
+credentials:
+  existingSecret: ""
+  externalSecret:
+    enabled: false
+    secretStoreRef:
+      name: vault-reader
+      kind: ClusterSecretStore
+    refreshInterval: 1h
+    # remoteRefs: chave Vault -> propriedade, por chave do Secret destino.
+    data:
+      AWS_ACCESS_KEY_ID:
+        key: datacosmos/global/system/barman/s3
+        property: AWS_ACCESS_KEY_ID
+      AWS_SECRET_ACCESS_KEY:
+        key: datacosmos/global/system/barman/s3
+        property: AWS_SECRET_ACCESS_KEY
+      PGPASSWORD:
+        key: datacosmos/PLACEHOLDER/postgresql
+        property: password
+
+# ---------------------------------------------------------------------------
+# WAL streaming contínuo (RPO ~0): pg_receivewal + envio incremental ao S3.
+# ---------------------------------------------------------------------------
+walArchive:
+  enabled: true
+  shipIntervalSeconds: 10
+  # spool local entre o pg_receivewal e o envio ao S3.
+  spool:
+    size: 5Gi
+    storageClass: ""
+
+# Base backups (full) periódicos. Entre eles, o WAL contínuo cobre o PITR.
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  compression: zstd        # zstd | gzip | snappy | none
+  jobsConcurrency: 2
+
+# Retenção — expira base backups + WAL fora da janela.
+retention:
+  enabled: true
+  schedule: "0 5 * * *"
+  policy: "RECOVERY WINDOW OF 14 DAYS"
+
+# Verificação periódica do arquivo WAL no S3.
+checkWalArchive:
+  enabled: true
+  schedule: "*/30 * * * *"
+
+serviceAccount:
+  create: true
+  name: ""
+
+podSecurityContext:
+  fsGroup: 26
+  runAsUser: 26
+  runAsGroup: 26
+  runAsNonRoot: true
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: 128Mi
+  limits:
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

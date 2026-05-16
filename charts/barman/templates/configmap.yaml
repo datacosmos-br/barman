@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "barman.fullname" . }}-scripts
+  labels:
+    {{- include "barman.labels" . | nindent 4 }}
+data:
+  receivewal.sh: |
+    #!/bin/bash
+    # WAL streaming contínuo — pg_receivewal mantém o WAL chegando em tempo real
+    # (RPO ~0). O slot de replicação física garante que o primário retém o WAL
+    # até ele ser recebido.
+    set -uo pipefail
+    while true; do
+      echo "[receivewal] iniciando pg_receivewal slot=${SLOT} host=${PGHOST}"
+      pg_receivewal \
+        --directory="${SPOOL_DIR}" \
+        --slot="${SLOT}" --create-slot --if-not-exists \
+        --verbose || true
+      echo "[receivewal] pg_receivewal terminou — retry em 10s"
+      sleep 10
+    done
+
+  wal-ship.sh: |
+    #!/bin/bash
+    # Envia cada segmento WAL completo ao object storage via barman-cloud-wal-archive
+    # e remove o arquivo local após sucesso. Segmentos .partial são ignorados.
+    set -uo pipefail
+    OPTS=(--cloud-provider "${S3_PROVIDER}" --endpoint-url "${S3_ENDPOINT}")
+    if [ -n "${COMPRESSION:-}" ] && [ "${COMPRESSION}" != "none" ]; then
+      OPTS+=("--${COMPRESSION}")
+    fi
+    echo "[shipper] destino ${S3_DEST}/${SERVER_NAME} compress=${COMPRESSION:-none}"
+    while true; do
+      for f in "${SPOOL_DIR}"/*; do
+        [ -f "${f}" ] || continue
+        case "${f}" in *.partial) continue ;; esac
+        if barman-cloud-wal-archive "${OPTS[@]}" "${S3_DEST}" "${SERVER_NAME}" "${f}"; then
+          rm -f "${f}"
+          echo "[shipper] enviado $(basename "${f}")"
+        else
+          echo "[shipper] WARN falha em $(basename "${f}") — retry no proximo ciclo"
+        fi
+      done
+      sleep "${SHIP_INTERVAL:-10}"
+    done
+
+  base-backup.sh: |
+    #!/bin/bash
+    # Base backup completo direto para o object storage. Entre base backups, o
+    # WAL contínuo cobre o ponto-no-tempo (PITR).
+    set -euo pipefail
+    OPTS=(--cloud-provider "${S3_PROVIDER}" --endpoint-url "${S3_ENDPOINT}")
+    if [ -n "${COMPRESSION:-}" ] && [ "${COMPRESSION}" != "none" ]; then
+      OPTS+=("--${COMPRESSION}")
+    fi
+    if [ -n "${JOBS:-}" ]; then OPTS+=(--jobs "${JOBS}"); fi
+    echo "[backup] base backup ${SERVER_NAME} -> ${S3_DEST}"
+    barman-cloud-backup "${OPTS[@]}" \
+      --host "${PGHOST}" --port "${PGPORT}" --user "${PGUSER}" \
+      "${S3_DEST}" "${SERVER_NAME}"
+    echo "[backup] concluido"
+
+  retention.sh: |
+    #!/bin/bash
+    # Expira base backups e WAL fora da janela de retenção.
+    set -euo pipefail
+    echo "[retention] aplicando: ${RETENTION}"
+    barman-cloud-backup-delete \
+      --cloud-provider "${S3_PROVIDER}" --endpoint-url "${S3_ENDPOINT}" \
+      --retention-policy "${RETENTION}" \
+      "${S3_DEST}" "${SERVER_NAME}"
+    echo "[retention] concluido"
+
+  check-wal.sh: |
+    #!/bin/bash
+    # Valida que o arquivo WAL no object storage está consistente.
+    set -euo pipefail
+    barman-cloud-check-wal-archive \
+      --cloud-provider "${S3_PROVIDER}" --endpoint-url "${S3_ENDPOINT}" \
+      "${S3_DEST}" "${SERVER_NAME}"

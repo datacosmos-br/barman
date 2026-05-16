@@ -1,0 +1,35 @@
+barman ({{ .Chart.AppVersion }}) — backup contínuo + incremental para object storage.
+
+Servidor   : {{ .Values.server.name }}
+Origem     : {{ .Values.postgres.host }}:{{ .Values.postgres.port }}
+Destino    : {{ include "barman.s3dest" . }}/{{ .Values.server.name }}
+Retenção   : {{ .Values.retention.policy }}
+
+Componentes:
+{{- if .Values.walArchive.enabled }}
+  - Deployment {{ include "barman.fullname" . }}-walarchive  (pg_receivewal → S3, contínuo)
+{{- end }}
+{{- if .Values.backup.enabled }}
+  - CronJob    {{ include "barman.fullname" . }}-backup      ({{ .Values.backup.schedule }})
+{{- end }}
+{{- if .Values.retention.enabled }}
+  - CronJob    {{ include "barman.fullname" . }}-retention   ({{ .Values.retention.schedule }})
+{{- end }}
+{{- if .Values.checkWalArchive.enabled }}
+  - CronJob    {{ include "barman.fullname" . }}-check-wal   ({{ .Values.checkWalArchive.schedule }})
+{{- end }}
+
+Credenciais: Secret "{{ include "barman.secretName" . }}" — chaves AWS_ACCESS_KEY_ID,
+AWS_SECRET_ACCESS_KEY, PGPASSWORD.
+{{- if not .Values.credentials.externalSecret.enabled }}{{- if not .Values.credentials.existingSecret }}
+
+ATENÇÃO: nem credentials.existingSecret nem credentials.externalSecret.enabled
+foram definidos — crie o Secret "{{ include "barman.secretName" . }}" antes de usar.
+{{- end }}{{- end }}
+
+Verificações:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "barman.fullname" . }}-walarchive -c shipper
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "barman.fullname" . }}-backup barman-test
+  # listar backups no object storage:
+  barman-cloud-backup-list --cloud-provider {{ .Values.objectStore.provider }} \
+    --endpoint-url {{ .Values.objectStore.endpoint }} {{ include "barman.s3dest" . }} {{ .Values.server.name }}

@@ -1,7 +1,7 @@
 ARG BARMAN_VERSION
 ARG SOURCE_INSTALL "0"
 
-FROM debian:bullseye
+FROM debian:bookworm
 
 ARG BARMAN_VERSION
 ARG SOURCE_INSTALL "0"
@@ -21,8 +21,8 @@ RUN apt-get update && \
 #   python: Needed to run barman
 #   rsync: Needed to rsync basebackups from the database servers
 #   gettext-base: envsubst
-RUN bash -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg main" >> /etc/apt/sources.list.d/pgdg.list' && \
-    (wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -) && \
+RUN wget --quiet -O /usr/share/keyrings/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc && \
+    bash -c 'echo "deb [signed-by=/usr/share/keyrings/pgdg.asc] http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" >> /etc/apt/sources.list.d/pgdg.list' && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         vim \
@@ -40,7 +40,8 @@ RUN bash -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg ma
         postgresql-client-16 \
         postgresql-client-17 \
         python3 \
-        python3-distutils \
+        python3-pip \
+        python3-venv \
         rsync \
         gettext-base \
         procps && \
@@ -85,7 +86,7 @@ COPY pg.conf.template /etc/barman/barman.d/pg.conf.template
 ENV PYTHONPATH: "${PYTHONPATH}:/opt/barman"
 
 # Install barman exporter
-RUN pip install boto3 s3cmd barman-exporter && mkdir /node_exporter
+RUN python3 -m pip install --break-system-packages --no-cache-dir boto3 s3cmd barman-exporter && mkdir /node_exporter
 VOLUME /node_exporter
 
 # Install the entrypoint script.  It will set up ssh-related things and then run

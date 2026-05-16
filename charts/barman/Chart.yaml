@@ -1,0 +1,18 @@
+apiVersion: v2
+name: barman
+description: Barman Cloud — backup contínuo (WAL streaming) e base backups incrementais de PostgreSQL para object storage S3-compatível.
+type: application
+version: 0.1.0
+appVersion: "3.18.0"
+keywords:
+  - postgresql
+  - backup
+  - barman
+  - barman-cloud
+  - disaster-recovery
+home: https://github.com/datacosmos-br/barman
+sources:
+  - https://github.com/datacosmos-br/barman
+maintainers:
+  - name: DataCosmos
+    email: marlon.costa@datacosmos.com.br

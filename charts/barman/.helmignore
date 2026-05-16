@@ -1,0 +1,7 @@
+.git
+.github
+*.md
+Dockerfile
+install_barman.sh
+entrypoint.sh
+*.template

@@ -1,0 +1,18 @@
+{{- if .Values.walArchive.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "barman.fullname" . }}-spool
+  labels:
+    {{- include "barman.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wal-archive
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.walArchive.spool.size | quote }}
+  {{- if .Values.walArchive.spool.storageClass }}
+  storageClassName: {{ .Values.walArchive.spool.storageClass | quote }}
+  {{- end }}
+{{- end }}

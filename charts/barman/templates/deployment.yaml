@@ -1,0 +1,78 @@
+{{- if .Values.walArchive.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "barman.fullname" . }}-walarchive
+  labels:
+    {{- include "barman.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wal-archive
+spec:
+  replicas: 1
+  # Recreate: apenas um pg_receivewal por slot de replicação.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "barman.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: wal-archive
+  template:
+    metadata:
+      labels:
+        {{- include "barman.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: wal-archive
+    spec:
+      serviceAccountName: {{ include "barman.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: receivewal
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "/scripts/receivewal.sh"]
+          env:
+            {{- include "barman.env" . | nindent 12 }}
+          volumeMounts:
+            - name: spool
+              mountPath: /spool
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        - name: shipper
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "/scripts/wal-ship.sh"]
+          env:
+            {{- include "barman.env" . | nindent 12 }}
+          volumeMounts:
+            - name: spool
+              mountPath: /spool
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: spool
+          persistentVolumeClaim:
+            claimName: {{ include "barman.fullname" . }}-spool
+        - name: scripts
+          configMap:
+            name: {{ include "barman.fullname" . }}-scripts
+            defaultMode: 0755
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

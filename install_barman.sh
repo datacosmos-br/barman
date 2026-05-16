@@ -3,26 +3,23 @@
 set -exo pipefail
 shopt -s nullglob
 
-# Install barman
-# Create a 'barman' user that it will run as.
-# Create a .ssh directory for the 'barman' user.  SSH keys will be used to rsync
-#     basebackups from the database servers.
-# Install the barman cron job that ensures that pg_receivexlog is running for
-#     all of the database servers set to stream its WAL logs.
-wget -O - https://bootstrap.pypa.io/get-pip.py | python3 -
-pip install requests==2.23.0
+# Instala o barman + barman-cli-cloud (backup/WAL para object storage S3) +
+# extras de compressão (zstd/lz4). pip vem do pacote apt python3-pip
+# (Debian bookworm / Python 3.11+). Cria o usuário de sistema 'barman'
+# com uid/gid fixos (26) para casar com o securityContext do Helm chart.
+
+PIP="python3 -m pip install --break-system-packages --no-cache-dir"
 
 if [[ "${SOURCE_INSTALL}" == "1" ]]; then
-    apt update
-    apt install -y git pip python-is-python3
-    barman_path="/opt/barman"
-    pip install git+${BARMAN_GIT_REPO}
-    useradd --system --shell /bin/bash barman
-    install -d -m 0700 -o barman -g barman ~barman/.ssh
+    apt-get update
+    apt-get install -y --no-install-recommends git
+    rm -rf /var/lib/apt/lists/*
+    ${PIP} "barman[cloud,zstandard,lz4] @ git+${BARMAN_GIT_REPO}"
 else
-    pip install barman==${BARMAN_VERSION}
-    useradd --system --shell /bin/bash barman
-    install -d -m 0700 -o barman -g barman ~barman/.ssh
+    ${PIP} "barman[cloud,zstandard,lz4]==${BARMAN_VERSION}"
 fi
 
+groupadd --system --gid 26 barman
+useradd --system --uid 26 --gid 26 --shell /bin/bash --create-home barman
+install -d -m 0700 -o barman -g barman ~barman/.ssh
 gosu barman bash -c 'echo -e "Host *\n\tCheckHostIP no" > ~/.ssh/config'
