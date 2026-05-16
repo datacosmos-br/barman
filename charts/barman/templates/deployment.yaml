@@ -1,78 +1,130 @@
-{{- if .Values.walArchive.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "barman.fullname" . }}-walarchive
+  name: {{ include "barman.fullname" . }}
   labels:
     {{- include "barman.labels" . | nindent 4 }}
-    app.kubernetes.io/component: wal-archive
+  {{- with .Values.deployment.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
-  # Recreate: apenas um pg_receivewal por slot de replicação.
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "barman.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: wal-archive
+  strategy:
+    type: {{ .Values.deployment.strategy.type | quote }}
   template:
     metadata:
+      {{- with .Values.deployment.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
-        {{- include "barman.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: wal-archive
+        {{- include "barman.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "barman.serviceAccountName" . }}
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+    {{- with .Values.deployment.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+    {{- end }}
       containers:
-        - name: receivewal
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        {{- with .Values.deployment.extraContainers }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: barman
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "/scripts/receivewal.sh"]
-          env:
-            {{- include "barman.env" . | nindent 12 }}
+          # workaround for https://github.com/ubc/barman-docker/pull/4
+          command: ["tini", "--", "/entrypoint.sh"]
+          args: ["cron", "-L", "4", "-f"]
+          {{- if .Values.prometheus.enabled }}
+          ports:
+            - name: prom-exporter
+              containerPort: {{ .Values.prometheus.service.internalPort }}
+              protocol: TCP
+          {{- end }}
+          {{/*
+          Fix permissions & owner of .pgpass file
+          https://www.postgresql.org/docs/9.4/libpq-pgpass.html
+          */}}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - "/bin/sh"
+                  - "-c"
+                  - "HOME=/home/barman && cp /.pgpass $HOME/ && chown barman:barman $HOME/.pgpass && chmod 600 $HOME/.pgpass"
+          envFrom:
+            - configMapRef:
+                name: {{ include "barman.fullname" . }}-config
           volumeMounts:
-            - name: spool
-              mountPath: /spool
-            - name: scripts
-              mountPath: /scripts
+            - mountPath: /var/lib/barman
+              name: data
+              subPath: data
+            - mountPath: /var/lib/barman/recover
+              name: recover
+              subPath: recover
+            - mountPath: /etc/barman/barman.d
+              name: barman-backups-config
+            - mountPath: /etc/barman.conf
+              name: barman-global-config
+              subPath: barman.conf
+            - mountPath: /.pgpass
+              name: barman-pgpass-secret
+              subPath: .pgpass
+            - mountPath: /etc/cron.d/barman
+              name: barman-cron-config
+              subPath: barman
+            - mountPath: /entrypoint.sh
+              name: barman-entrypoint
+              subPath: entrypoint.sh
+          {{- with .Values.deployment.additionalVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end  }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-        - name: shipper
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "/scripts/wal-ship.sh"]
-          env:
-            {{- include "barman.env" . | nindent 12 }}
-          volumeMounts:
-            - name: spool
-              mountPath: /spool
-            - name: scripts
-              mountPath: /scripts
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+{{- if .Values.deployment.initContainers }}
+      initContainers:
+        {{- if eq (typeOf .Values.deployment.initContainers) "string" }}
+        {{- tpl .Values.deployment.initContainers . | nindent 8 }}
+        {{- else }}
+        {{- toYaml .Values.deployment.initContainers | nindent 8 }}
+        {{- end }}
+      {{- end }}
       volumes:
-        - name: spool
+        - name: data
+        {{- if not .Values.persistence.data.enabled }}
+          emptyDir: {}
+        {{- else }}
           persistentVolumeClaim:
-            claimName: {{ include "barman.fullname" . }}-spool
-        - name: scripts
+            claimName: {{ include "barman.fullname" . }}-data
+        {{- end }}
+        - name: recover
+        {{- if not .Values.persistence.recover.enabled }}
+          emptyDir: {}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "barman.fullname" . }}-recover
+        {{- end }}
+        - name: barman-backups-config
           configMap:
-            name: {{ include "barman.fullname" . }}-scripts
-            defaultMode: 0755
-      {{- with .Values.nodeSelector }}
+            name: {{ include "barman.fullname" . }}-backups-config
+        - name: barman-global-config
+          configMap:
+            name: {{ include "barman.fullname" . }}-global-config
+        - name: barman-pgpass-secret
+          secret:
+            secretName: {{ include "barman.fullname" . }}-pgpass-secret
+            defaultMode: 0600
+        - name: barman-cron-config
+          configMap:
+            name: {{ include "barman.fullname" . }}-cron-config
+        - name: barman-entrypoint
+          configMap:
+            name: {{ include "barman.fullname" . }}-entrypoint
+            defaultMode: 0775
+      {{- with .Values.deployment.additionalVolumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end  }}
+    {{- if .Values.nodeSelector }}
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-{{- end }}
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+    {{- end }}

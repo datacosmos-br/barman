@@ -1,115 +1,223 @@
-# Barman Cloud — valores padrão.
-# Cada cluster sobrescreve server.name / objectStore.bucket via o ApplicationSet.
-
 image:
+  # -- Container image to deploy (barman 3.x + barman-cli-cloud)
   repository: ghcr.io/datacosmos-br/barman
-  tag: "3.18.0-dc1"
+  # -- When to pull the container image
   pullPolicy: IfNotPresent
+  # -- Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
-imagePullSecrets: []
-
-nameOverride: ""
-fullnameOverride: ""
-
-# ---------------------------------------------------------------------------
-# PostgreSQL de origem (o servidor cujos bancos serão copiados).
-# Para postgresql-ha (bitnami), apontar ao serviço do primário (pgpool roteia
-# writes; para replicação física use o serviço do StatefulSet do primário).
-# ---------------------------------------------------------------------------
-postgres:
-  host: postgresql-ha-postgresql.postgresql.svc.cluster.local
-  port: 5432
-  user: postgres
-  database: postgres
-
-# Identificador do servidor barman — vira a pasta <prefix>/<server.name>/ no bucket.
-server:
-  name: postgresql-ha
-  # slot de replicação física usado pelo pg_receivewal (criado automaticamente).
-  slot: barman
-
-# ---------------------------------------------------------------------------
-# Destino: object storage S3-compatível (ex.: OCI Object Storage).
-# ---------------------------------------------------------------------------
-objectStore:
-  endpoint: ""            # ex.: https://<ns>.compat.objectstorage.<region>.oraclecloud.com
-  bucket: ""              # nome do bucket (1 por cluster)
-  prefix: barman          # pasta raiz dentro do bucket
-  region: sa-saopaulo-1
-  provider: aws-s3        # barman-cloud --cloud-provider
-
-# ---------------------------------------------------------------------------
-# Credenciais. O Secret deve conter as chaves:
-#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, PGPASSWORD
-# Use credentials.existingSecret (recomendado: provido por ESO/Vault) OU
-# habilite credentials.externalSecret para o chart renderizar o ExternalSecret.
-# ---------------------------------------------------------------------------
-credentials:
-  existingSecret: ""
-  externalSecret:
-    enabled: false
-    secretStoreRef:
-      name: vault-reader
-      kind: ClusterSecretStore
-    refreshInterval: 1h
-    # remoteRefs: chave Vault -> propriedade, por chave do Secret destino.
-    data:
-      AWS_ACCESS_KEY_ID:
-        key: datacosmos/global/system/barman/s3
-        property: AWS_ACCESS_KEY_ID
-      AWS_SECRET_ACCESS_KEY:
-        key: datacosmos/global/system/barman/s3
-        property: AWS_SECRET_ACCESS_KEY
-      PGPASSWORD:
-        key: datacosmos/PLACEHOLDER/postgresql
-        property: password
-
-# ---------------------------------------------------------------------------
-# WAL streaming contínuo (RPO ~0): pg_receivewal + envio incremental ao S3.
-# ---------------------------------------------------------------------------
-walArchive:
-  enabled: true
-  shipIntervalSeconds: 10
-  # spool local entre o pg_receivewal e o envio ao S3.
-  spool:
-    size: 5Gi
-    storageClass: ""
-
-# Base backups (full) periódicos. Entre eles, o WAL contínuo cobre o PITR.
-backup:
-  enabled: true
-  schedule: "0 2 * * *"
-  compression: zstd        # zstd | gzip | snappy | none
-  jobsConcurrency: 2
-
-# Retenção — expira base backups + WAL fora da janela.
-retention:
-  enabled: true
-  schedule: "0 5 * * *"
-  policy: "RECOVERY WINDOW OF 14 DAYS"
-
-# Verificação periódica do arquivo WAL no S3.
-checkWalArchive:
-  enabled: true
-  schedule: "*/30 * * * *"
-
-serviceAccount:
-  create: true
-  name: ""
-
-podSecurityContext:
-  fsGroup: 10001
-  runAsUser: 10001
-  runAsGroup: 10001
-  runAsNonRoot: true
-
+# -- Resource limits and requests
 resources:
   requests:
-    cpu: "50m"
+    cpu: 100m
     memory: 128Mi
   limits:
-    memory: 1Gi
+    memory: 256Mi
 
-nodeSelector: {}
-tolerations: []
-affinity: {}
+deployment:
+  strategy:
+    # -- Specify the strategy used to replace old Pods by new ones
+    type: RollingUpdate
+  # -- Specify additional VolumeMounts for the barman container
+  additionalVolumeMounts: []
+  # -- Specify additional Volumes for the deployment
+  additionalVolumes: []
+  # -- Specify deployment annotations
+  annotations: {}
+  # -- Specify pod annotations
+  podAnnotations: {}
+  # -- Specify sidecars for the deployment
+  extraContainers: {}
+  # -- Specify imagePullSecrets for the deployment
+  imagePullSecrets: []
+  # -- Specify additional ENVs for the Deployment
+  additionalENVs: {}
+  # -- Init containers for the deployment. If the value is a string then it is evaluated as a template.
+  initContainers: []
+#    - name: wait-for
+#      image: kfirfer/wait-for:0.0.1
+#      securityContext:
+#        runAsNonRoot: true
+#        runAsUser: 1000
+#        readOnlyRootFilesystem: true
+#      command:
+#        - /bin/sh
+#        - -c
+#        - |
+#          /wait-for postgresql:5432 --timeout=1800
+
+service:
+  # -- Specify if a Service should be created
+  create: false
+  # -- Type of service
+  type: ClusterIP
+  # -- Service annotations
+  annotations: {}
+  ports:
+      # -- specify targetPort
+    - targetPort: http
+      # -- specify port protocol
+      protocol: TCP
+      # -- specify port Name
+      name: http
+      # -- specify port
+      port: 80
+  # -- Only for type ClusterIP
+  clusterIP: ~
+  # -- Only for type LoadBalancer
+  loadBalancerIP: ~
+
+persistence:
+  data:
+    # -- Enable persistent storage for backup data
+    enabled: true
+    # -- Access mode for persistent storage
+    accessMode: ReadWriteOnce
+    # -- Size of storage volume
+    size: 20Gi
+    # -- Storage class
+    storageClass: ""
+    # -- Add annotations to backup data PVC
+    annotations: {}
+  recover:
+    # -- Enable persistent storage for recovery
+    enabled: false
+    # -- Access mode for persistent storage
+    accessMode: ReadWriteOnce
+    # -- Size of storage volume
+    size: 4Gi
+    # -- Storage class
+    storageClass: ""
+    # -- Add annotations to recovery PVC
+    annotations: {}
+
+rbac:
+  # -- Whether to create RBAC or not
+  create: false
+
+secret:
+  # -- Whether to create and manage the barman-pgpass-secret
+  create: true
+
+barman:
+  # -- Barman backup method
+  backupMethod: postgres
+  # -- Barman backup options
+  backupOptions: concurrent_backup
+  # -- Barman home directory
+  backupDir: /var/lib/barman
+  # -- Barman user
+  barmanUser: barman
+  # -- Barman backup compression
+  compression: gzip
+  # -- Barman retention policy
+  retentionPolicy: "RECOVERY WINDOW of 1 MONTH"
+  # -- Barman last backup maximum age
+  lastBackupMaximumAge: "1 day"
+  # -- Barman backup schedule
+  backupSchedule: "0 4 * * *"
+  # -- Database slot name to be created/used
+  databaseSlotName: barman
+  # -- Create Database slot
+  createDatabaseSlot: true
+  # -- Barman post_backup_retry_script
+  postBackupRetryScript: ""
+  # -- Barman pre_recovery_retry_script
+  preRecoveryRetryScript: ""
+
+  # -- List of PostgreSQL servers to back up. Each entry is an independent
+  # Barman server (scope) — add as many as needed to back up multiple
+  # databases simultaneously. The `postgresql.host` may point to a
+  # Kubernetes Service (in-cluster) OR to any reachable host/FQDN/IP
+  # (PostgreSQL running outside the cluster). See README.md.
+  backups:
+      # ---- Example 1: PostgreSQL running INSIDE the Kubernetes cluster ----
+      # -- Unique scope/server name (folder + Barman server id)
+    - scopeName: "pg-in-cluster"
+      # -- Barman retention policy for this server
+      retentionPolicy: "RECOVERY WINDOW of 1 MONTH"
+      # -- Barman backup method
+      backupMethod: postgres
+      # -- Physical replication slot name (must be unique per server)
+      databaseSlotName: "barman_pg_in_cluster"
+      # -- Create the replication slot automatically
+      createDatabaseSlot: true
+      # -- Alert if the newest backup is older than this
+      lastBackupMaximumAge: "1 day"
+      # -- Cron schedule for the base backup of this server
+      backupSchedule: "0 2 * * *"
+      # -- Extra lines appended to this server's Barman config
+      additionalConfiguration: ""
+      postgresql:
+        # -- PostgreSQL host — a Kubernetes Service FQDN for in-cluster DBs
+        host: "postgresql.default.svc.cluster.local"
+        # -- PostgreSQL port
+        port: 5432
+        # -- Superuser (used for the base backup connection)
+        superUser: postgres
+        # -- Superuser password — OVERRIDE per environment, never commit real secrets
+        superUserPassword: "changeme"
+        # -- Superuser database
+        superUserDatabase: postgres
+        # -- Replication user (used for WAL streaming)
+        replicationUser: "streaming_barman"
+        # -- Replication password — OVERRIDE per environment
+        replicationPassword: "changeme"
+      # -- namespace of the PostgreSQL workload (only used when rbac.create=true)
+      namespace: default
+      # -- service account of the PostgreSQL workload (only used when rbac.create=true)
+      serviceaccount: default
+
+      # ---- Example 2: PostgreSQL running OUTSIDE the Kubernetes cluster ----
+    - scopeName: "pg-external"
+      retentionPolicy: "RECOVERY WINDOW of 2 WEEKS"
+      backupMethod: postgres
+      databaseSlotName: "barman_pg_external"
+      createDatabaseSlot: true
+      lastBackupMaximumAge: "1 day"
+      backupSchedule: "0 3 * * *"
+      additionalConfiguration: ""
+      postgresql:
+        # -- For external databases, use the reachable host/FQDN or IP address
+        host: "postgres.example.com"
+        port: 5432
+        superUser: postgres
+        superUserPassword: "changeme"
+        superUserDatabase: postgres
+        replicationUser: "streaming_barman"
+        replicationPassword: "changeme"
+      # namespace/serviceaccount are irrelevant for external DBs (rbac.create=false)
+      namespace: ""
+      serviceaccount: ""
+
+
+prometheus:
+  # -- Enable Prometheus integration
+  enabled: true
+  service:
+    # -- Prometheus exporter service name
+    name: barman-exporter
+    # -- Prometheus exporter service internal port
+    internalPort: 9780
+    # -- Prometheus exporter service external port
+    externalPort: 9780
+    # -- Prometheus exporter service type
+    type: ClusterIP
+  serviceMonitor:
+    # -- Labels to add to service monitor
+    extraLabels: {}
+    # -- Interval at which metrics should be scraped
+    interval: "30s"
+    # -- MetricRelabelConfigs to apply to samples before ingestion
+    metricRelabelings: []
+    # -- RelabelConfigs to apply to samples before scraping
+    relabelings: []
+  rules:
+    # -- Enable Alertmanager rules
+    enabled: false
+    # -- Selector labels for Alertmanager rules
+    selector: []
+    # -- Additional labels for Alertmanager rules
+    additionalLabels: []
+    # -- Array of Alertmanager rules
+    spec: []
