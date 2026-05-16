@@ -44,6 +44,7 @@ RUN wget --quiet -O /usr/share/keyrings/pgdg.asc https://www.postgresql.org/medi
         python3-venv \
         rsync \
         gettext-base \
+        file \
         procps && \
     rm -rf /var/lib/apt/lists/* && \
     rm -f /etc/crontab /etc/cron.*/* && \
