@@ -1,184 +1,190 @@
 image:
-  # -- Container image to deploy (barman 3.x + barman-cli-cloud)
+  # -- Container image to deploy (Barman 3.x including the barman-cloud-* tools)
   repository: ghcr.io/datacosmos-br/barman
   # -- When to pull the container image
   pullPolicy: IfNotPresent
-  # -- Overrides the image tag whose default is the chart appVersion.
+  # -- Overrides the image tag whose default is the chart appVersion
   tag: ""
 
-# -- Resource limits and requests
+# -- Resource limits and requests for the Barman container
 resources:
   requests:
     cpu: 100m
     memory: 128Mi
   limits:
-    memory: 256Mi
+    memory: 512Mi
+
+# -- nodeSelector for the Barman pod
+nodeSelector: {}
 
 deployment:
   strategy:
-    # -- Specify the strategy used to replace old Pods by new ones
-    type: RollingUpdate
-  # -- Specify additional VolumeMounts for the barman container
+    # -- Strategy used to replace old Pods (use Recreate with RWO volumes)
+    type: Recreate
+  # -- Additional VolumeMounts for the Barman container
   additionalVolumeMounts: []
-  # -- Specify additional Volumes for the deployment
+  # -- Additional Volumes for the deployment
   additionalVolumes: []
-  # -- Specify deployment annotations
+  # -- Deployment annotations
   annotations: {}
-  # -- Specify pod annotations
+  # -- Pod annotations
   podAnnotations: {}
-  # -- Specify sidecars for the deployment
+  # -- Extra sidecar containers
   extraContainers: {}
-  # -- Specify imagePullSecrets for the deployment
+  # -- imagePullSecrets for the deployment
   imagePullSecrets: []
-  # -- Specify additional ENVs for the Deployment
+  # -- Additional environment variables for the Barman container (map).
+  # Use for barman-cloud credentials (AWS_ACCESS_KEY_ID, ...) or any tuning.
   additionalENVs: {}
-  # -- Init containers for the deployment. If the value is a string then it is evaluated as a template.
+  # -- Init containers. A string value is rendered as a template.
   initContainers: []
-#    - name: wait-for
-#      image: kfirfer/wait-for:0.0.1
-#      securityContext:
-#        runAsNonRoot: true
-#        runAsUser: 1000
-#        readOnlyRootFilesystem: true
-#      command:
-#        - /bin/sh
-#        - -c
-#        - |
-#          /wait-for postgresql:5432 --timeout=1800
 
 service:
-  # -- Specify if a Service should be created
+  # -- Whether to create a Service for the Barman pod
   create: false
-  # -- Type of service
+  # -- Service type
   type: ClusterIP
   # -- Service annotations
   annotations: {}
   ports:
-      # -- specify targetPort
     - targetPort: http
-      # -- specify port protocol
       protocol: TCP
-      # -- specify port Name
       name: http
-      # -- specify port
       port: 80
-  # -- Only for type ClusterIP
+  # -- clusterIP (ClusterIP type only)
   clusterIP: ~
-  # -- Only for type LoadBalancer
+  # -- loadBalancerIP (LoadBalancer type only)
   loadBalancerIP: ~
 
 persistence:
   data:
-    # -- Enable persistent storage for backup data
+    # -- Enable a PVC for the backup catalog (base backups + WAL)
     enabled: true
-    # -- Access mode for persistent storage
+    # -- Access mode
     accessMode: ReadWriteOnce
-    # -- Size of storage volume
-    size: 20Gi
-    # -- Storage class
+    # -- Volume size — size for the retention window of all servers
+    size: 50Gi
+    # -- StorageClass ("" = cluster default)
     storageClass: ""
-    # -- Add annotations to backup data PVC
+    # -- Annotations for the data PVC
     annotations: {}
   recover:
-    # -- Enable persistent storage for recovery
+    # -- Enable a PVC used as scratch space for restores
     enabled: false
-    # -- Access mode for persistent storage
+    # -- Access mode
     accessMode: ReadWriteOnce
-    # -- Size of storage volume
-    size: 4Gi
-    # -- Storage class
+    # -- Volume size
+    size: 10Gi
+    # -- StorageClass ("" = cluster default)
     storageClass: ""
-    # -- Add annotations to recovery PVC
+    # -- Annotations for the recover PVC
     annotations: {}
 
 rbac:
-  # -- Whether to create RBAC or not
+  # -- Create a ClusterRole/Binding (only needed for in-cluster integrations
+  # that exec into PostgreSQL pods). Leave false for external databases.
   create: false
 
 secret:
-  # -- Whether to create and manage the barman-pgpass-secret
+  # -- Manage the generated .pgpass Secret from barman.backups[].postgresql
   create: true
 
+# ===========================================================================
+# Barman configuration. Every Barman capability is parameterizable here:
+#  - barman.globalConfiguration : the [barman] section (global defaults)
+#  - barman.backups[].configuration : per-server overrides ([<scope>] section)
+#  - barman.backups[].additionalConfiguration : raw extra lines per server
+# Any valid Barman option may be used as a key — see https://docs.pgbarman.org/
+# ===========================================================================
 barman:
-  # -- Barman backup method
-  backupMethod: postgres
-  # -- Barman backup options
-  backupOptions: concurrent_backup
-  # -- Barman home directory
+  # -- Barman home directory (BARMAN_DATA_DIR)
   backupDir: /var/lib/barman
-  # -- Barman user
+  # -- OS user Barman runs as
   barmanUser: barman
-  # -- Barman backup compression
-  compression: gzip
-  # -- Barman retention policy
-  retentionPolicy: "RECOVERY WINDOW of 1 MONTH"
-  # -- Barman last backup maximum age
-  lastBackupMaximumAge: "1 day"
-  # -- Barman backup schedule
+  # -- Cron expression for `barman cron` (keeps WAL streaming alive)
+  cronSchedule: "* * * * *"
+  # -- Default base-backup cron expression (a server may override it)
   backupSchedule: "0 4 * * *"
-  # -- Database slot name to be created/used
-  databaseSlotName: barman
-  # -- Create Database slot
-  createDatabaseSlot: true
-  # -- Barman post_backup_retry_script
-  postBackupRetryScript: ""
-  # -- Barman pre_recovery_retry_script
-  preRecoveryRetryScript: ""
+
+  # -- Global [barman] options. Rendered verbatim as `key = value`.
+  # Defaults enable Barman's streaming/continuous capabilities; override or
+  # add any option (compression, retention, parallelism, hooks, ...).
+  globalConfiguration:
+    backup_method: postgres
+    backup_options: concurrent_backup
+    compression: gzip
+    retention_policy: "RECOVERY WINDOW of 1 MONTH"
+    retention_policy_mode: auto
+    wal_retention_policy: main
+    minimum_redundancy: 1
+    last_backup_maximum_age: "1 day"
+    streaming_archiver: "on"
+    archiver: "off"
+    create_slot: auto
+    parallel_jobs: 1
+    network_compression: false
+    reuse_backup: "off"
+    basebackup_retry_times: 3
+    basebackup_retry_sleep: 30
+    immediate_checkpoint: false
+    check_timeout: 30
+    log_level: INFO
+
+  # -- Global hook scripts (optional). Any Barman *_script / *_retry_script key.
+  hookScripts: {}
+    # post_backup_retry_script: "/etc/barman/hooks/upload-to-cloud.sh"
+    # pre_recovery_retry_script: ""
 
   # -- List of PostgreSQL servers to back up. Each entry is an independent
   # Barman server (scope) — add as many as needed to back up multiple
-  # databases simultaneously. The `postgresql.host` may point to a
-  # Kubernetes Service (in-cluster) OR to any reachable host/FQDN/IP
-  # (PostgreSQL running outside the cluster). See README.md.
+  # databases simultaneously. `postgresql.host` may be a Kubernetes Service
+  # (in-cluster) OR any reachable host/FQDN/IP (external PostgreSQL).
   backups:
       # ---- Example 1: PostgreSQL running INSIDE the Kubernetes cluster ----
-      # -- Unique scope/server name (folder + Barman server id)
-    - scopeName: "pg-in-cluster"
-      # -- Barman retention policy for this server
-      retentionPolicy: "RECOVERY WINDOW of 1 MONTH"
-      # -- Barman backup method
-      backupMethod: postgres
-      # -- Physical replication slot name (must be unique per server)
+    - # -- Unique scope / Barman server id
+      scopeName: "pg-in-cluster"
+      # -- Human-readable description
+      description: "In-cluster PostgreSQL (streaming)"
+      # -- Base-backup cron for this server (omit to use barman.backupSchedule)
+      backupSchedule: "0 2 * * *"
+      # -- Physical replication slot name (unique per server)
       databaseSlotName: "barman_pg_in_cluster"
       # -- Create the replication slot automatically
       createDatabaseSlot: true
-      # -- Alert if the newest backup is older than this
-      lastBackupMaximumAge: "1 day"
-      # -- Cron schedule for the base backup of this server
-      backupSchedule: "0 2 * * *"
-      # -- Extra lines appended to this server's Barman config
-      additionalConfiguration: ""
       postgresql:
-        # -- PostgreSQL host — a Kubernetes Service FQDN for in-cluster DBs
+        # -- Host — Kubernetes Service FQDN for in-cluster databases
         host: "postgresql.default.svc.cluster.local"
-        # -- PostgreSQL port
+        # -- Port
         port: 5432
-        # -- Superuser (used for the base backup connection)
+        # -- Superuser (base-backup connection)
         superUser: postgres
-        # -- Superuser password — OVERRIDE per environment, never commit real secrets
+        # -- Superuser password — OVERRIDE per environment, never commit secrets
         superUserPassword: "changeme"
         # -- Superuser database
         superUserDatabase: postgres
-        # -- Replication user (used for WAL streaming)
+        # -- Replication user (WAL streaming)
         replicationUser: "streaming_barman"
         # -- Replication password — OVERRIDE per environment
         replicationPassword: "changeme"
-      # -- namespace of the PostgreSQL workload (only used when rbac.create=true)
+      # -- Per-server [<scope>] options — overrides globalConfiguration
+      configuration:
+        retention_policy: "RECOVERY WINDOW of 1 MONTH"
+        last_backup_maximum_age: "1 day"
+      # -- Raw extra lines appended to this server's config block
+      additionalConfiguration: ""
+      # -- Namespace of the PostgreSQL workload (only used when rbac.create=true)
       namespace: default
-      # -- service account of the PostgreSQL workload (only used when rbac.create=true)
+      # -- ServiceAccount of the PostgreSQL workload (only used when rbac.create=true)
       serviceaccount: default
 
       # ---- Example 2: PostgreSQL running OUTSIDE the Kubernetes cluster ----
     - scopeName: "pg-external"
-      retentionPolicy: "RECOVERY WINDOW of 2 WEEKS"
-      backupMethod: postgres
+      description: "External PostgreSQL (streaming)"
+      backupSchedule: "0 3 * * *"
       databaseSlotName: "barman_pg_external"
       createDatabaseSlot: true
-      lastBackupMaximumAge: "1 day"
-      backupSchedule: "0 3 * * *"
-      additionalConfiguration: ""
       postgresql:
-        # -- For external databases, use the reachable host/FQDN or IP address
+        # -- For external databases use the reachable host/FQDN or IP
         host: "postgres.example.com"
         port: 5432
         superUser: postgres
@@ -186,38 +192,41 @@ barman:
         superUserDatabase: postgres
         replicationUser: "streaming_barman"
         replicationPassword: "changeme"
-      # namespace/serviceaccount are irrelevant for external DBs (rbac.create=false)
+      configuration:
+        retention_policy: "RECOVERY WINDOW of 2 WEEKS"
+        last_backup_maximum_age: "1 day"
+      additionalConfiguration: ""
+      # namespace/serviceaccount are irrelevant for external databases
       namespace: ""
       serviceaccount: ""
 
-
 prometheus:
-  # -- Enable Prometheus integration
+  # -- Enable the Barman Prometheus exporter integration
   enabled: true
   service:
-    # -- Prometheus exporter service name
+    # -- Exporter service name
     name: barman-exporter
-    # -- Prometheus exporter service internal port
+    # -- Exporter internal port
     internalPort: 9780
-    # -- Prometheus exporter service external port
+    # -- Exporter external port
     externalPort: 9780
-    # -- Prometheus exporter service type
+    # -- Exporter service type
     type: ClusterIP
   serviceMonitor:
-    # -- Labels to add to service monitor
+    # -- Extra labels for the ServiceMonitor
     extraLabels: {}
-    # -- Interval at which metrics should be scraped
+    # -- Scrape interval
     interval: "30s"
-    # -- MetricRelabelConfigs to apply to samples before ingestion
+    # -- metricRelabelings
     metricRelabelings: []
-    # -- RelabelConfigs to apply to samples before scraping
+    # -- relabelings
     relabelings: []
   rules:
-    # -- Enable Alertmanager rules
+    # -- Enable Alertmanager (PrometheusRule) objects
     enabled: false
-    # -- Selector labels for Alertmanager rules
+    # -- Selector labels for the rules
     selector: []
-    # -- Additional labels for Alertmanager rules
+    # -- Additional labels for the rules
     additionalLabels: []
-    # -- Array of Alertmanager rules
+    # -- Array of alerting rules
     spec: []

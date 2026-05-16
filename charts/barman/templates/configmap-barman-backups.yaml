@@ -9,23 +9,20 @@ data:
   {{ .scopeName }}.conf: |
       [{{ .scopeName }}]
       active = true
-      description = "PostgreSQL Database (Streaming-Only)"
-      conninfo = host={{ .postgresql.host }} user={{ .postgresql.superUser }} dbname={{ .postgresql.superUserDatabase }}
-      streaming_conninfo = host={{ .postgresql.host }} user={{ .postgresql.replicationUser }}
-      {{- if hasKey . "backupMethod" }}
-      backup_method = {{ .backupMethod }}
-      {{- end }}
-      streaming_archiver = on
-      {{- if hasKey . "databaseSlotName" }}
+      description = "{{ .description | default .scopeName }}"
+      conninfo = host={{ .postgresql.host }} port={{ .postgresql.port }} user={{ .postgresql.superUser }} dbname={{ .postgresql.superUserDatabase }}
+      streaming_conninfo = host={{ .postgresql.host }} port={{ .postgresql.port }} user={{ .postgresql.replicationUser }}
+      {{- if .databaseSlotName }}
       slot_name = {{ .databaseSlotName }}
       {{- end }}
-      {{- if hasKey . "lastBackupMaximumAge" }}
-      last_backup_maximum_age = {{ .lastBackupMaximumAge }}
+      {{- if hasKey . "createDatabaseSlot" }}
+      create_slot = {{ if .createDatabaseSlot }}auto{{ else }}manual{{ end }}
       {{- end }}
-      {{- if hasKey . "retentionPolicy" }}
-      retention_policy = {{ .retentionPolicy }}
+      ; per-server options (backups[].configuration) — override the global ones
+      {{- range $key, $val := .configuration }}
+      {{ $key }} = {{ $val }}
       {{- end }}
-      {{- if hasKey . "additionalConfiguration" }}
+      {{- if .additionalConfiguration }}
       {{- .additionalConfiguration | nindent 6 }}
       {{- end }}
   {{- end }}
