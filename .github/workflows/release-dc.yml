@@ -1,0 +1,93 @@
+name: Publish (-dc release)
+
+# Action ÚNICA de publicação DataCosmos. Dispara nas tags adicionais `*-dc*`
+# (ex.: 3.18.0-dc1) e publica numa só execução: imagem de container, Helm
+# chart e GitHub Release. A versão do barman é a parte da tag antes de `-dc`.
+#
+# Publicação SEMPRE a partir da main: a tag precisa apontar para um commit
+# contido em `main`, caso contrário o job falha.
+#
+# Os workflows mantidos pelo GitHub/upstream (docker-publish.yml) seguem
+# intactos — este é adicional.
+#
+# NOTA sobre visibilidade: na PRIMEIRA publicação defina os packages
+#   ghcr.io/datacosmos-br/barman  e  ghcr.io/datacosmos-br/charts/barman
+# como `Public` em https://github.com/orgs/datacosmos-br/packages
+# (Package settings -> Change visibility). Depois disso permanece público.
+
+on:
+  push:
+    tags:
+      - '*-dc*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure the tag is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::A tag nao aponta para um commit de main — publicacao so a partir de main."
+            exit 1
+          fi
+
+      - name: Resolve versions
+        id: v
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          # versão do barman = tag sem o sufixo -dc*
+          echo "barman_version=${tag%%-dc*}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            BARMAN_VERSION=${{ steps.v.outputs.barman_version }}
+            SOURCE_INSTALL=0
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.v.outputs.tag }}
+            ghcr.io/${{ github.repository }}:dc
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Package and push Helm chart
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+          CHART_REGISTRY: oci://ghcr.io/${{ github.repository_owner }}/charts
+        run: |
+          mkdir -p dist
+          helm package charts/barman -d dist
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "$GH_ACTOR" --password-stdin
+          helm push dist/barman-*.tgz "$CHART_REGISTRY"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/barman-*.tgz --title "$TAG" --generate-notes
