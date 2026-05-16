@@ -98,9 +98,9 @@ serviceAccount:
   name: ""
 
 podSecurityContext:
-  fsGroup: 26
-  runAsUser: 26
-  runAsGroup: 26
+  fsGroup: 10001
+  runAsUser: 10001
+  runAsGroup: 10001
   runAsNonRoot: true
 
 resources:
