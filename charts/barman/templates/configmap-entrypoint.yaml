@@ -15,8 +15,13 @@ data:
 
     chown -R barman:barman /var/lib/barman/recover
     {{- if .Values.persistence.basebackups.enabled }}
-    echo "Setting ownership on {{ .Values.persistence.basebackups.mountPath }} (base backups volume)"
-    install -d -m 0750 -o barman -g barman {{ .Values.persistence.basebackups.mountPath }}
+    # Cria o subdir por servidor no volume de base backups. O root do mount
+    # (S3-FUSE/geesefs) não é um objeto real e recusa chown ("Operation not
+    # supported"); subdirs reais são chownáveis com geesefs --enable-perms.
+    {{- range .Values.barman.backups }}
+    echo "Ensuring base backups dir for {{ .scopeName }}"
+    install -d -m 0750 -o barman -g barman {{ $.Values.persistence.basebackups.mountPath }}/{{ .scopeName }}
+    {{- end }}
     {{- end }}
 
     echo "Checking/Creating replication slot"
