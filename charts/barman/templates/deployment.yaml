@@ -67,6 +67,10 @@ spec:
             - mountPath: /var/lib/barman/recover
               name: recover
               subPath: recover
+            {{- if .Values.persistence.basebackups.enabled }}
+            - mountPath: {{ .Values.persistence.basebackups.mountPath }}
+              name: basebackups
+            {{- end }}
             - mountPath: /etc/barman/barman.d
               name: barman-backups-config
             - mountPath: /etc/barman.conf
@@ -137,6 +141,11 @@ spec:
         {{- else }}
           persistentVolumeClaim:
             claimName: {{ include "barman.fullname" . }}-recover
+        {{- end }}
+        {{- if .Values.persistence.basebackups.enabled }}
+        - name: basebackups
+          persistentVolumeClaim:
+            claimName: {{ include "barman.fullname" . }}-basebackups
         {{- end }}
         - name: barman-backups-config
           configMap:

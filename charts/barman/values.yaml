@@ -58,7 +58,8 @@ service:
 
 persistence:
   data:
-    # -- Enable a PVC for the backup catalog (base backups + WAL)
+    # -- Enable a PVC for the backup catalog (xlogdb + WAL + metadata).
+    # Needs a POSIX filesystem — base backups can be split off to `basebackups`.
     enabled: true
     # -- Access mode
     accessMode: ReadWriteOnce
@@ -67,6 +68,22 @@ persistence:
     # -- StorageClass ("" = cluster default)
     storageClass: ""
     # -- Annotations for the data PVC
+    annotations: {}
+  basebackups:
+    # -- Enable a separate PVC for base backups (large sequential data).
+    # When enabled, mount it and point each server's `basebackups_directory`
+    # at `<mountPath>/<scopeName>`. Lets the catalog stay on a POSIX volume
+    # while base backups live on object storage.
+    enabled: false
+    # -- Access mode
+    accessMode: ReadWriteOnce
+    # -- Volume size
+    size: 200Gi
+    # -- StorageClass ("" = cluster default)
+    storageClass: ""
+    # -- Mount path for the base backups volume
+    mountPath: /var/lib/barman-basebackups
+    # -- Annotations for the basebackups PVC
     annotations: {}
   recover:
     # -- Enable a PVC used as scratch space for restores
