@@ -261,8 +261,8 @@ prometheus:
   # -- Enable the Barman Prometheus exporter integration
   enabled: true
   service:
-    # -- Exporter service name
-    name: barman-exporter
+    # -- Exporter service name (empty = "<release>-exporter", release-scoped)
+    name: ""
     # -- Exporter internal port
     internalPort: 9780
     # -- Exporter external port

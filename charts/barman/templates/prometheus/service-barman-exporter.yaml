@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.prometheus.service.name }}
+  name: {{ .Values.prometheus.service.name | default (printf "%s-exporter" (include "barman.fullname" .)) }}
   labels:
     {{- include "barman.labels" . | nindent 4 }}
 spec:

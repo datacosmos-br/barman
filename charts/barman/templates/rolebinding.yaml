@@ -2,11 +2,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: postgresqlbarman
+  name: {{ include "barman.fullname" . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: barman-backup
+  name: {{ include "barman.fullname" . }}-backup
 subjects:
 {{- range .Values.barman.backups }}
 - kind: ServiceAccount
