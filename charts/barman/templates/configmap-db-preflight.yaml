@@ -1,0 +1,71 @@
+{{- if .Values.dbPreflight.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "barman.fullname" . }}-db-preflight
+  labels:
+    {{- include "barman.labels" . | nindent 4 }}
+data:
+  db-preflight.sh: |
+    #!/bin/bash
+    # Pré-flight: valida que cada PostgreSQL alvo tem os parâmetros que o
+    # Barman exige (wal_level, wal senders/slots, privilégio de replicação).
+    # MODE=warn  -> loga FALHAS e segue (resiliente: DB fora no boot não trava).
+    # MODE=enforce -> exit 1 numa falha dura (fail-fast, pod não sobe).
+    set -uo pipefail
+    export PGPASSFILE=/.pgpass PGCONNECT_TIMEOUT=10
+    MODE="${DB_PREFLIGHT_MODE:-warn}"
+    MIN_SENDERS="${DB_PREFLIGHT_MIN_WAL_SENDERS:-10}"
+    MIN_SLOTS="${DB_PREFLIGHT_MIN_REPL_SLOTS:-10}"
+    hard_fail=0
+
+    q() { psql -h "$1" -p "$2" -U "$3" -d "$4" -tAqc "$5" --no-password 2>/dev/null; }
+
+    check_db() {
+      local name="$1" host="$2" port="$3" user="$4" db="$5"
+      echo "=== DB preflight [$name] ${host}:${port} user=${user} ==="
+      if ! q "$host" "$port" "$user" "$db" "SELECT 1" >/dev/null; then
+        echo "  conectividade: FAIL (não conectou)"; hard_fail=1; return
+      fi
+      echo "  conectividade: OK"
+      local wl ws rs rep
+      wl="$(q "$host" "$port" "$user" "$db" "SHOW wal_level")"
+      case "$wl" in
+        replica|logical) echo "  wal_level: OK (${wl})" ;;
+        *) echo "  wal_level: FAIL (${wl:-?} — precisa replica/logical)"; hard_fail=1 ;;
+      esac
+      ws="$(q "$host" "$port" "$user" "$db" "SHOW max_wal_senders")"
+      if [ "${ws:-0}" -ge "$MIN_SENDERS" ] 2>/dev/null; then
+        echo "  max_wal_senders: OK (${ws})"
+      else
+        echo "  max_wal_senders: FAIL (${ws:-?} < ${MIN_SENDERS})"; hard_fail=1
+      fi
+      rs="$(q "$host" "$port" "$user" "$db" "SHOW max_replication_slots")"
+      if [ "${rs:-0}" -ge "$MIN_SLOTS" ] 2>/dev/null; then
+        echo "  max_replication_slots: OK (${rs})"
+      else
+        echo "  max_replication_slots: FAIL (${rs:-?} < ${MIN_SLOTS})"; hard_fail=1
+      fi
+      rep="$(q "$host" "$port" "$user" "$db" \
+        "SELECT rolsuper OR rolreplication FROM pg_roles WHERE rolname=current_user")"
+      if [ "$rep" = "t" ]; then
+        echo "  privilégio REPLICATION: OK"
+      else
+        echo "  privilégio REPLICATION: FAIL (user sem REPLICATION/SUPERUSER)"; hard_fail=1
+      fi
+    }
+
+    {{- range .Values.barman.backups }}
+    check_db {{ .scopeName | quote }} {{ .postgresql.host | quote }} {{ .postgresql.port | default 5432 | quote }} {{ .postgresql.superUser | quote }} {{ .postgresql.superUserDatabase | default "postgres" | quote }}
+    {{- end }}
+
+    if [ "$hard_fail" -ne 0 ]; then
+      if [ "$MODE" = "enforce" ]; then
+        echo "DB preflight FALHOU (mode=enforce) — abortando o start do pod."
+        exit 1
+      fi
+      echo "DB preflight com FALHAS (mode=warn) — seguindo; corrija os bancos."
+    else
+      echo "DB preflight OK — todos os bancos atendem aos requisitos do Barman."
+    fi
+{{- end }}

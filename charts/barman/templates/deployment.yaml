@@ -119,12 +119,35 @@ spec:
             timeoutSeconds: {{ .Values.healthCheck.readinessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.healthCheck.readinessProbe.failureThreshold }}
           {{- end }}
-{{- if .Values.deployment.initContainers }}
+{{- if or .Values.deployment.initContainers .Values.dbPreflight.enabled }}
       initContainers:
+        {{- if .Values.dbPreflight.enabled }}
+        # Pré-flight: valida os parâmetros dos PostgreSQL alvo antes de subir.
+        - name: db-preflight
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "/scripts/db-preflight.sh"]
+          env:
+            - name: DB_PREFLIGHT_MODE
+              value: {{ .Values.dbPreflight.mode | quote }}
+            - name: DB_PREFLIGHT_MIN_WAL_SENDERS
+              value: {{ .Values.dbPreflight.minWalSenders | quote }}
+            - name: DB_PREFLIGHT_MIN_REPL_SLOTS
+              value: {{ .Values.dbPreflight.minReplicationSlots | quote }}
+          volumeMounts:
+            - mountPath: /scripts/db-preflight.sh
+              name: barman-db-preflight
+              subPath: db-preflight.sh
+            - mountPath: /.pgpass
+              name: barman-pgpass-secret
+              subPath: .pgpass
+        {{- end }}
+        {{- if .Values.deployment.initContainers }}
         {{- if eq (typeOf .Values.deployment.initContainers) "string" }}
         {{- tpl .Values.deployment.initContainers . | nindent 8 }}
         {{- else }}
         {{- toYaml .Values.deployment.initContainers | nindent 8 }}
+        {{- end }}
         {{- end }}
       {{- end }}
       volumes:
@@ -160,6 +183,12 @@ spec:
         - name: barman-cron-config
           configMap:
             name: {{ include "barman.fullname" . }}-cron-config
+        {{- if .Values.dbPreflight.enabled }}
+        - name: barman-db-preflight
+          configMap:
+            name: {{ include "barman.fullname" . }}-db-preflight
+            defaultMode: 0775
+        {{- end }}
         - name: barman-entrypoint
           configMap:
             name: {{ include "barman.fullname" . }}-entrypoint

@@ -60,6 +60,14 @@ data:
 
     echo "Initializing done"
 
+    {{- if .Values.barman.logFile }}
+    # log_file aponta p/ arquivo (necessário p/ o receive-wal persistir) —
+    # espelha o log no stdout do container para `kubectl logs` continuar útil.
+    install -d -m 0755 -o barman -g barman "$(dirname {{ .Values.barman.logFile }})"
+    touch {{ .Values.barman.logFile }} && chown barman:barman {{ .Values.barman.logFile }}
+    tail -n0 -F {{ .Values.barman.logFile }} &
+    {{- end }}
+
     # run barman exporter every hour
     exec /usr/local/bin/barman-exporter -l ${BARMAN_EXPORTER_LISTEN_ADDRESS}:${BARMAN_EXPORTER_LISTEN_PORT} -c ${BARMAN_EXPORTER_CACHE_TIME} &
     echo "Started Barman exporter on ${BARMAN_EXPORTER_LISTEN_ADDRESS}:${BARMAN_EXPORTER_LISTEN_PORT}"

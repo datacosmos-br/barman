@@ -11,7 +11,10 @@ data:
       barman_home = {{ .Values.barman.backupDir }}
       barman_user = {{ .Values.barman.barmanUser }}
       configuration_files_directory = /etc/barman/barman.d
-      log_file = ""
+      ; log_file DEVE apontar para um arquivo: com log_file vazio o barman
+      ; mantém os FDs (keep_descriptors) ao spawnar receive-wal, que herda o
+      ; pipe do system-cron e morre com SIGPIPE quando o `barman cron` sai.
+      log_file = {{ .Values.barman.logFile }}
       ; global options (barman.globalConfiguration) — any valid Barman key
       {{- range $key, $val := .Values.barman.globalConfiguration }}
       {{ $key }} = {{ $val }}

@@ -163,6 +163,19 @@ healthCheck:
     timeoutSeconds: 30
     failureThreshold: 3
 
+dbPreflight:
+  # -- Run an initContainer that validates each target PostgreSQL has the
+  # parameters Barman needs (wal_level, max_wal_senders, max_replication_slots,
+  # REPLICATION privilege) before the pod starts.
+  enabled: true
+  # -- "warn" logs failures and continues (resilient); "enforce" fails the
+  # initContainer (pod does not start) on a hard requirement miss.
+  mode: warn
+  # -- Minimum acceptable max_wal_senders on the target database
+  minWalSenders: 10
+  # -- Minimum acceptable max_replication_slots on the target database
+  minReplicationSlots: 10
+
 # ===========================================================================
 # Barman configuration. Every Barman capability is parameterizable here:
 #  - barman.globalConfiguration : the [barman] section (global defaults)
@@ -175,10 +188,19 @@ barman:
   backupDir: /var/lib/barman
   # -- OS user Barman runs as
   barmanUser: barman
+  # -- Barman log file. MUST be a file path (not ""): with an empty log_file
+  # Barman keeps file descriptors when spawning receive-wal, which then
+  # inherits the system-cron pipe and dies with SIGPIPE when `barman cron`
+  # exits. The entrypoint tails this file to stdout for `kubectl logs`.
+  logFile: /var/log/barman/barman.log
   # -- Cron expression for `barman cron` (keeps WAL streaming alive)
   cronSchedule: "* * * * *"
   # -- Default base-backup cron expression (a server may override it)
   backupSchedule: "0 4 * * *"
+  # -- Periodic `barman switch-wal --archive` per server. Forces WAL to
+  # progress on low-write databases so backups don't hang in
+  # WAITING_FOR_WALS. Set "" to disable.
+  walSwitchSchedule: "*/30 * * * *"
 
   # -- Global [barman] options. Rendered verbatim as `key = value`.
   # Defaults enable Barman's streaming/continuous capabilities; override or

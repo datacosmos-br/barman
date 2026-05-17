@@ -6,12 +6,17 @@ metadata:
     {{- include "barman.labels" . | nindent 4 }}
 data:
   barman: |
-      {{- range .Values.barman.backups }}
+      # barman cron: auto-heal (mantém receive-wal/archive-wal vivos, refaz slot).
       * * * * * barman /usr/local/bin/barman cron
+      {{- range .Values.barman.backups }}
       {{- if hasKey . "backupSchedule" }}
       {{ .backupSchedule }} barman /usr/local/bin/barman backup {{ .scopeName }}
       {{- else }}
       {{ $.Values.barman.backupSchedule }} barman /usr/local/bin/barman backup {{ .scopeName }}
+      {{- end }}
+      {{- if $.Values.barman.walSwitchSchedule }}
+      # switch-wal periódico: bancos de baixa escrita não travam em WAITING_FOR_WALS.
+      {{ $.Values.barman.walSwitchSchedule }} barman /usr/local/bin/barman switch-wal --archive {{ .scopeName }}
       {{- end }}
       {{- end }}
       # required by cron
