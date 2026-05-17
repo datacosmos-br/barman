@@ -90,6 +90,29 @@ secret:
   create: true
 
 # ===========================================================================
+# SSH — required for `backup_method: rsync` (rsync over SSH) and for repmgr
+# clone-via-barman. When enabled, an SSH keypair is mounted into the Barman
+# pod and the entrypoint installs it at ~barman/.ssh/. NOT needed for
+# `backup_method: postgres` (pg_basebackup). See README "Backup methods".
+# ===========================================================================
+ssh:
+  # -- Enable SSH key mounting (required for backup_method: rsync)
+  enabled: false
+  # -- Name of an existing Secret holding the keys: id_rsa, id_rsa.pub,
+  # known_hosts. Recommended — provide it via a secrets manager / ESO.
+  existingSecret: ""
+  # -- Inline key material. Use ONLY for local tests — never commit a real
+  # private key. Rendered into a chart-managed Secret when secret.create=true.
+  secret:
+    create: false
+    # -- SSH private key (id_rsa)
+    privateKey: ""
+    # -- SSH public key (id_rsa.pub)
+    publicKey: ""
+    # -- known_hosts entries for the PostgreSQL hosts
+    knownHosts: ""
+
+# ===========================================================================
 # Health check — a readinessProbe runs `barman check` for every server and
 # makes the pod NotReady (Deployment + ArgoCD show degraded/unhealthy) when
 # the backup is NOT healthy: a database is unreachable, replication/streaming

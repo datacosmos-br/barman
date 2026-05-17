@@ -129,6 +129,16 @@ EOF
   fi
 fi
 
+# ---- Teste 6: restore-validação (base paralela) -------------------------
+# Encadeia test/restore-test.sh — prova que o backup é restauravel (restore
+# numa base paralela + conferencia de checksum), nos dois metodos.
+echo "== Teste 6: restore-validação (test/restore-test.sh) =="
+if IMAGE="${IMAGE}" BARMAN_VERSION="${BARMAN_VERSION}" bash test/restore-test.sh; then
+  pass "restore-test.sh — backup restaurável validado"
+else
+  err "restore-test.sh"
+fi
+
 echo "=================================================================="
 if [ "${fail}" -eq 0 ]; then
   echo " RESULTADO: TODOS OS TESTES PASSARAM"

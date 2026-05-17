@@ -86,6 +86,11 @@ spec:
               name: barman-healthcheck
               subPath: healthcheck.sh
           {{- end }}
+          {{- if .Values.ssh.enabled }}
+            - mountPath: /ssh-keys
+              name: ssh-keys
+              readOnly: true
+          {{- end }}
           {{- with .Values.deployment.additionalVolumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end  }}
@@ -155,6 +160,12 @@ spec:
           configMap:
             name: {{ include "barman.fullname" . }}-healthcheck
             defaultMode: 0775
+        {{- end }}
+        {{- if .Values.ssh.enabled }}
+        - name: ssh-keys
+          secret:
+            secretName: {{ include "barman.sshSecretName" . }}
+            defaultMode: 0600
         {{- end }}
       {{- with .Values.deployment.additionalVolumes }}
         {{- toYaml . | nindent 8 }}

@@ -41,3 +41,14 @@ Selector labels
 app.kubernetes.io/name: {{ include "barman.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
+
+{{/*
+Name of the SSH keypair Secret (existingSecret or the chart-managed one).
+*/}}
+{{- define "barman.sshSecretName" -}}
+{{- if .Values.ssh.existingSecret -}}
+{{- .Values.ssh.existingSecret -}}
+{{- else -}}
+{{- include "barman.fullname" . -}}-ssh
+{{- end -}}
+{{- end -}}

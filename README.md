@@ -35,15 +35,33 @@ This fork adds, on top of upstream:
 Full documentation: [`charts/barman/README.md`](./charts/barman/README.md).
 
 ```sh
-helm install barman oci://ghcr.io/datacosmos-br/charts/barman --version 1.1.0 \
+helm install barman oci://ghcr.io/datacosmos-br/charts/barman --version 1.2.0 \
   -n barman --create-namespace -f my-values.yaml
 ```
 
 The chart backs up **multiple PostgreSQL servers at once**, in-cluster or
-external, and ships a readinessProbe **health check** that fails when a
-database is unreachable, replication is broken, or a scheduled backup failed.
-See the chart README for the per-database setup instructions (plain/external,
-Bitnami `postgresql-ha`/repmgr, Patroni/TimescaleDB).
+external, supports **both backup methods** — `postgres` (pg_basebackup, incl.
+`parallel_jobs`) and `rsync` (over SSH, incremental via `reuse_backup: link`) —
+and ships a readinessProbe **health check** that fails when a database is
+unreachable, replication is broken, or a scheduled backup failed. The chart
+README documents the per-database setup (plain/external, Bitnami
+`postgresql-ha`/repmgr, Patroni/TimescaleDB), every backup-method variation,
+and restore.
+
+---
+
+## Tests
+
+Local Docker-based tests — **a `-dc*` release must not be published unless
+both pass** (`exit 0`):
+
+```sh
+bash test/integration-test.sh   # build, chart lint/render, tools, real backup
+bash test/restore-test.sh       # restore into a parallel DB + checksum match
+                                # (covers backup_method postgres AND rsync)
+```
+
+`integration-test.sh` also chains `restore-test.sh` as its last step.
 
 ---
 

@@ -29,7 +29,20 @@ data:
     {{- end }}
     {{- end }}
     {{- end }}
-    if [[ -f /home/barman/.ssh/id_rsa ]]; then
+    # SSH keys — needed for backup_method=rsync and repmgr clone-via-barman.
+    # The chart mounts the keypair Secret read-only at /ssh-keys; install it
+    # into ~barman/.ssh with the strict permissions OpenSSH requires.
+    if [[ -d /ssh-keys ]]; then
+        echo "Installing SSH keys from /ssh-keys into ~barman/.ssh"
+        install -d -m 0700 -o barman -g barman ~barman/.ssh
+        for f in /ssh-keys/*; do
+            [[ -f "$f" ]] && cp -L "$f" ~barman/.ssh/
+        done
+        chown -R barman:barman ~barman/.ssh
+        chmod 700 ~barman/.ssh
+        [[ -f ~barman/.ssh/id_rsa ]] && chmod 600 ~barman/.ssh/id_rsa
+        [[ -f ~barman/.ssh/known_hosts ]] && chmod 644 ~barman/.ssh/known_hosts
+    elif [[ -f /home/barman/.ssh/id_rsa ]]; then
         echo "Setting up Barman private key"
         chmod 700 ~barman/.ssh
         chown barman:barman -R ~barman/.ssh

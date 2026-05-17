@@ -125,6 +125,132 @@ the Patroni primary Service.
 
 ---
 
+## Backup methods
+
+Barman supports two backup methods, set **per server** via
+`barman.backups[].configuration.backup_method` (default: `postgres`).
+
+### `backup_method: postgres` — pg_basebackup (default, no SSH)
+
+Barman runs `pg_basebackup` over the normal PostgreSQL connection. **No SSH
+required**; works identically for in-cluster and external databases.
+
+| Option (in `configuration`) | Effect |
+|---|---|
+| `backup_method: postgres` | Use pg_basebackup |
+| `parallel_jobs: N` | **Parallel** pg_basebackup streams — faster (PostgreSQL 13+) |
+| `backup_options: concurrent_backup` | Non-blocking backup (recommended; default) |
+| `backup_options: exclusive_backup` | Legacy exclusive mode (PostgreSQL < 15 only) |
+| `immediate_checkpoint: true` | Immediate checkpoint — faster start, more I/O |
+| `streaming_archiver: "on"` | Continuous WAL via `pg_receivewal` (RPO ≈ 0) |
+| `bandwidth_limit: KBPS` | Throttle the transfer |
+
+```yaml
+barman:
+  backups:
+    - scopeName: "orders-db"
+      configuration:
+        backup_method: postgres
+        parallel_jobs: 4
+        backup_options: concurrent_backup
+        immediate_checkpoint: true
+        streaming_archiver: "on"
+      postgresql:
+        host: orders-postgresql.apps.svc.cluster.local
+        superUser: barman
+        replicationUser: barman
+```
+
+* **Pros:** simple; no SSH; same for in-cluster and external databases.
+* **Cons:** every base backup copies the whole cluster (no file-level incremental).
+
+### `backup_method: rsync` — rsync over SSH
+
+Barman runs `rsync` over **SSH** against the PostgreSQL host's data directory.
+Supports **file-level incremental** backups, is faster for large databases, and
+the stored backup can seed a standby clone (e.g. `repmgr standby clone --barman`).
+Requires SSH from the Barman pod to the PostgreSQL host.
+
+**SSH prerequisite** — set `ssh.enabled: true` and provide a keypair:
+
+1. Generate a keypair: `ssh-keygen -t ed25519 -f barman -N ''`.
+2. Create a Secret with keys `id_rsa` (private), `id_rsa.pub`, `known_hosts`
+   (entries for the PostgreSQL hosts); set `ssh.existingSecret` to its name.
+   For local tests only, `ssh.secret.create` accepts inline material.
+3. On every PostgreSQL host, add `barman.pub` to the `postgres` OS user's
+   `~/.ssh/authorized_keys`.
+
+```yaml
+ssh:
+  enabled: true
+  existingSecret: barman-ssh
+barman:
+  backups:
+    - scopeName: "orders-db"
+      configuration:
+        backup_method: rsync
+        ssh_command: "ssh postgres@orders-postgresql.apps.svc.cluster.local"
+        reuse_backup: link            # incremental — hard-links unchanged files
+        parallel_jobs: 4
+        network_compression: true
+      postgresql:
+        host: orders-postgresql.apps.svc.cluster.local
+        superUser: barman
+        replicationUser: barman
+```
+
+| Option (in `configuration`) | Effect |
+|---|---|
+| `backup_method: rsync` | Use rsync over SSH |
+| `ssh_command: "ssh <user>@<host>"` | SSH command Barman uses (**required**) |
+| `reuse_backup: off` | Full backup every time |
+| `reuse_backup: link` | **Incremental** — unchanged files hard-linked from the previous backup (fast, space-efficient) |
+| `reuse_backup: copy` | Incremental by copy (no hard-links) |
+| `parallel_jobs: N` | Parallel rsync streams |
+| `network_compression: true` | Compress the rsync stream |
+| `bandwidth_limit: KBPS` | Throttle the transfer |
+
+* **Pros:** file-level incremental (`reuse_backup: link`); fast for large DBs;
+  parallel; the backup can seed a standby clone.
+* **Cons:** requires SSH access to the PostgreSQL host.
+
+### Which to use
+
+| | `postgres` | `rsync` |
+|---|---|---|
+| SSH required | no | yes |
+| File-level incremental | no | yes (`reuse_backup: link`) |
+| External DB friendly | yes | yes (if SSH reachable) |
+| Best for | simple setups, managed DBs | large DBs, fast incremental, standby seeding |
+
+---
+
+## Restore & validation
+
+```sh
+export POD=$(kubectl -n barman get pod -l app.kubernetes.io/name=barman \
+  -o jsonpath='{.items[0].metadata.name}')
+
+# list backups
+kubectl -n barman exec "$POD" -- su barman -c 'barman list-backup <scope>'
+
+# recover the latest backup into a directory
+kubectl -n barman exec "$POD" -- su barman -c \
+  'barman recover <scope> latest /var/lib/barman/recover'
+
+# point-in-time recovery
+kubectl -n barman exec "$POD" -- su barman -c \
+  'barman recover --target-time "2026-05-17 03:00:00" <scope> latest /var/lib/barman/recover'
+```
+
+To **prove** a backup is genuinely restorable, the project ships
+[`test/restore-test.sh`](../../test/restore-test.sh): it backs up a source
+PostgreSQL, recovers the backup into a **separate, parallel** PostgreSQL
+instance, and asserts that a marker dataset (row count + checksum) matches the
+source. Run it locally before publishing any release.
+
+---
+
 ## Configuration — multiple databases
 
 Every server is one entry in `barman.backups[]`; they are backed up
@@ -173,7 +299,7 @@ and cron jobs are configured automatically from `barman.backups[]`.
 ### With Helm directly
 
 ```sh
-helm install barman oci://ghcr.io/datacosmos-br/charts/barman --version 1.1.0 \
+helm install barman oci://ghcr.io/datacosmos-br/charts/barman --version 1.2.0 \
   -n barman --create-namespace -f my-values.yaml
 ```
 
@@ -227,7 +353,8 @@ See [`values.yaml`](./values.yaml) — every key is documented inline.
 |-------|---------|
 | `image` | Barman container image |
 | `barman.backups[]` | PostgreSQL servers to protect (multi-DB) |
-| `barman.globalConfiguration` / `backups[].configuration` | Any `barman.conf` option |
+| `barman.globalConfiguration` / `backups[].configuration` | Any `barman.conf` option (incl. `backup_method`, `parallel_jobs`, `reuse_backup`) |
+| `ssh` | SSH keypair mount — required for `backup_method: rsync` |
 | `healthCheck` | readinessProbe-based health check + thresholds |
 | `persistence.data` / `persistence.recover` | Backup and restore volumes |
 | `prometheus` | Barman exporter + ServiceMonitor / alert rules |
