@@ -34,32 +34,36 @@ snapshot() {
     CLUSTER SERVER "ULTIMO BACKUP" STATUS SIZE QTD WAL HEALTH
   printf '%.0s-' {1..110}; echo
   for ctx in $CONTEXTS; do
-    pod=$(kubectl --context="$ctx" -n "$NS" get pod \
-            -l app.kubernetes.io/name=barman \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-    if [ -z "$pod" ]; then
+    # Uma instância Barman por servidor → vários pods por cluster.
+    pods=$(kubectl --context="$ctx" -n "$NS" get pod \
+             -l app.kubernetes.io/name=barman \
+             --field-selector=status.phase=Running \
+             -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+    if [ -z "$pods" ]; then
       printf '%-20s %s\n' "$ctx" "(sem pod barman acessivel)"
       continue
     fi
-    kubectl --context="$ctx" -n "$NS" exec "$pod" -- \
-      su barman -c "$POD_SNIPPET" 2>/dev/null \
-    | while IFS='|' read -r srv cnt health line; do
-        [ -z "$srv" ] && continue
-        id=$(awk '{print $2}' <<<"$line"); [ -z "$id" ] && id="-"
-        case "$line" in
-          *STARTED*)            st="STARTED" ;;
-          *EMPTY*)              st="EMPTY" ;;
-          *WAITING_FOR_WALS*)   st="WAITING" ;;
-          *Size:*)              st="DONE" ;;
-          *)                    st="NENHUM" ;;
-        esac
-        size=$(sed -n 's/.* - Size: \([0-9.]* [A-Za-z]*\) - WAL Size:.*/\1/p' <<<"$line")
-        [ -z "$size" ] && size="-"
-        wal=$(sed -n 's/.*WAL Size: \(.*\)$/\1/p' <<<"$line")
-        [ -z "$wal" ] && wal="-"
-        printf '%-20s %-15s %-17s %-9s %-10s %-6s %-10s %s\n' \
-          "$ctx" "$srv" "$id" "$st" "$size" "$cnt" "$wal" "$health"
-      done
+    for pod in $pods; do
+      kubectl --context="$ctx" -n "$NS" exec "$pod" -- \
+        su barman -c "$POD_SNIPPET" 2>/dev/null \
+      | while IFS='|' read -r srv cnt health line; do
+          [ -z "$srv" ] && continue
+          id=$(awk '{print $2}' <<<"$line"); [ -z "$id" ] && id="-"
+          case "$line" in
+            *STARTED*)            st="STARTED" ;;
+            *EMPTY*)              st="EMPTY" ;;
+            *WAITING_FOR_WALS*)   st="WAITING" ;;
+            *Size:*)              st="DONE" ;;
+            *)                    st="NENHUM" ;;
+          esac
+          size=$(sed -n 's/.* - Size: \([0-9.]* [A-Za-z]*\) - WAL Size:.*/\1/p' <<<"$line")
+          [ -z "$size" ] && size="-"
+          wal=$(sed -n 's/.*WAL Size: \(.*\)$/\1/p' <<<"$line")
+          [ -z "$wal" ] && wal="-"
+          printf '%-20s %-15s %-17s %-9s %-10s %-6s %-10s %s\n' \
+            "$ctx" "$srv" "$id" "$st" "$size" "$cnt" "$wal" "$health"
+        done
+    done
   done
 }
 
