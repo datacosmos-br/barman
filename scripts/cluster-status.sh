@@ -7,13 +7,13 @@
 #
 # Variáveis (override opcional):
 #   BARMAN_CONTEXTS  contexts kubectl, separados por espaço
-#                    (default: dc-dese-gru-oci dc-prod-gru-oci dc-control-gru-oci)
+#                    (default: current-context do kubeconfig)
 #   BARMAN_NS        namespace do barman (default: barman)
 #   WATCH            se setada, entra em modo de acompanhamento
 #   WATCH_INTERVAL   segundos entre refreshs no modo WATCH (default: 30)
 set -uo pipefail
 
-CONTEXTS="${BARMAN_CONTEXTS:-dc-dese-gru-oci dc-prod-gru-oci dc-control-gru-oci}"
+CONTEXTS="${BARMAN_CONTEXTS:-$(kubectl config current-context 2>/dev/null)}"
 NS="${BARMAN_NS:-barman}"
 INTERVAL="${WATCH_INTERVAL:-30}"
 

@@ -121,8 +121,8 @@ EOF
     su barman -c 'barman list-backup citest' 2>&1
   " 2>&1)
 
-  if echo "${out}" | grep -q 'DONE'; then
-    pass "barman backup -> DONE (backup físico real concluído)"
+  if echo "${out}" | grep -q 'Backup completed'; then
+    pass "barman backup concluído (backup físico real)"
   else
     err "barman backup não concluiu"
     echo "${out}" | tail -12 | sed 's/^/    /'

@@ -146,7 +146,7 @@ spec:
             name: {{ include "barman.fullname" . }}-global-config
         - name: barman-pgpass-secret
           secret:
-            secretName: {{ include "barman.fullname" . }}-pgpass-secret
+            secretName: {{ include "barman.pgpassSecretName" . }}
             defaultMode: 0600
         - name: barman-cron-config
           configMap:

@@ -52,3 +52,14 @@ Name of the SSH keypair Secret (existingSecret or the chart-managed one).
 {{- include "barman.fullname" . -}}-ssh
 {{- end -}}
 {{- end -}}
+
+{{/*
+Name of the .pgpass Secret (secret.existingSecret or the chart-managed one).
+*/}}
+{{- define "barman.pgpassSecretName" -}}
+{{- if .Values.secret.existingSecret -}}
+{{- .Values.secret.existingSecret -}}
+{{- else -}}
+{{- include "barman.fullname" . -}}-pgpass-secret
+{{- end -}}
+{{- end -}}

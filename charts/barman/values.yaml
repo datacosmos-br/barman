@@ -86,8 +86,12 @@ rbac:
   create: false
 
 secret:
-  # -- Manage the generated .pgpass Secret from barman.backups[].postgresql
+  # -- Generate the .pgpass Secret inline from barman.backups[].postgresql
+  # (passwords in values — use only for tests/simple setups).
   create: true
+  # -- Name of an existing Secret holding `.pgpass` (overrides secret.create).
+  # Provide it however you like (a secrets operator, sealed-secrets, kubectl).
+  existingSecret: ""
 
 # ===========================================================================
 # SSH — required for `backup_method: rsync` (rsync over SSH) and for repmgr
@@ -128,17 +132,19 @@ healthCheck:
   # "failed backups" (a scheduled backup that actually failed).
   # To require at least one healthy backup, set: ignoreChecks: ""
   ignoreChecks: "minimum redundancy requirements|backup maximum age"
-  # -- startupProbe: waits until barman has loaded its servers
+  # -- startupProbe: waits until barman has loaded its servers.
+  # periodSeconds>=30 / failureThreshold>=3 keep the chart compliant with
+  # admission policies that enforce a minimum probe floor (e.g. Kyverno).
   startupProbe:
     initialDelaySeconds: 20
-    periodSeconds: 10
-    failureThreshold: 30
+    periodSeconds: 30
+    failureThreshold: 10
   # -- readinessProbe: runs the health check on a schedule
   readinessProbe:
     initialDelaySeconds: 30
     periodSeconds: 60
     timeoutSeconds: 30
-    failureThreshold: 2
+    failureThreshold: 3
 
 # ===========================================================================
 # Barman configuration. Every Barman capability is parameterizable here:
