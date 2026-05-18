@@ -10,8 +10,8 @@ data:
       [{{ .scopeName }}]
       active = true
       description = "{{ .description | default .scopeName }}"
-      conninfo = host={{ .postgresql.host }} port={{ .postgresql.port }} user={{ .postgresql.superUser }} dbname={{ .postgresql.superUserDatabase }}
-      streaming_conninfo = host={{ .postgresql.host }} port={{ .postgresql.port }} user={{ .postgresql.replicationUser }}
+      conninfo = host={{ .postgresql.host }} port={{ .postgresql.port }} user={{ .postgresql.superUser }} dbname={{ .postgresql.superUserDatabase }}{{ with .postgresql.targetSessionAttrs }} target_session_attrs={{ . }}{{ end }}
+      streaming_conninfo = host={{ .postgresql.host }} port={{ .postgresql.port }} user={{ .postgresql.replicationUser }}{{ with .postgresql.targetSessionAttrs }} target_session_attrs={{ . }}{{ end }}
       {{- if .databaseSlotName }}
       slot_name = {{ .databaseSlotName }}
       {{- end }}
