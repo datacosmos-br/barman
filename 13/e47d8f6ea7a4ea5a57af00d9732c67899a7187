@@ -1,0 +1,21 @@
+charts/barman/templates/configmap-barman-backups.yaml
+  s_66ae64193e7920::t_88f277850a3233 13-14
+charts/barman/Chart.yaml
+  s_66ae64193e7920::t_e85a305f03b70e 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "13e47d8f6ea7a4ea5a57af00d9732c67899a7187",
+  "prompts": {},
+  "sessions": {
+    "s_66ae64193e7920": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f880ad9-e825-4613-90fc-c20a5fdd70ad",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Marlon Costa <marlon.costa@datacosmos.com.br>"
+    }
+  }
+}
