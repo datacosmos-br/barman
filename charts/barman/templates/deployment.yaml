@@ -16,9 +16,22 @@ spec:
     type: {{ .Values.deployment.strategy.type | quote }}
   template:
     metadata:
-      {{- with .Values.deployment.podAnnotations }}
-      annotations: {{- toYaml . | nindent 8 }}
-      {{- end }}
+      annotations:
+        # Rola o pod quando QUALQUER ConfigMap de config muda. Sem isto, a
+        # config montada via subPath (/etc/barman.conf etc.) fica congelada no
+        # start do pod — ConfigMap atualizado mas pod servindo valor stale.
+        checksum/config: {{ printf "%s%s%s%s%s%s%s"
+          (include (print $.Template.BasePath "/configmap-barman.yaml") .)
+          (include (print $.Template.BasePath "/configmap-barman-backups.yaml") .)
+          (include (print $.Template.BasePath "/configmap-barman-cron.yaml") .)
+          (include (print $.Template.BasePath "/configmap-healthcheck.yaml") .)
+          (include (print $.Template.BasePath "/configmap-entrypoint.yaml") .)
+          (include (print $.Template.BasePath "/configmap-db-preflight.yaml") .)
+          (include (print $.Template.BasePath "/configmap.yaml") .)
+          | sha256sum }}
+        {{- with .Values.deployment.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "barman.labels" . | nindent 8 }}
     spec:
