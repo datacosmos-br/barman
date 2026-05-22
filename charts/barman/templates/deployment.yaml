@@ -77,12 +77,19 @@ spec:
             - mountPath: /var/lib/barman
               name: data
               subPath: data
+              # JuiceFS auto-recovery: propaga o mount do host para o container, de
+              # modo que o CSI re-binda quando o mount pod reinicia. Sem isto, um
+              # restart do mount pod deixa o endpoint FUSE morto ("transport endpoint
+              # is not connected") até um restart manual do pod.
+              mountPropagation: HostToContainer
             - mountPath: /var/lib/barman/recover
               name: recover
               subPath: recover
+              mountPropagation: HostToContainer
             {{- if .Values.persistence.basebackups.enabled }}
             - mountPath: {{ .Values.persistence.basebackups.mountPath }}
               name: basebackups
+              mountPropagation: HostToContainer
             {{- end }}
             - mountPath: /etc/barman/barman.d
               name: barman-backups-config
