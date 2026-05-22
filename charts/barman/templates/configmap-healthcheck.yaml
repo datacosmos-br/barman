@@ -38,4 +38,90 @@ data:
       fi
     done
     exit ${rc}
+{{- if .Values.healthCheck.livenessProbe.enabled }}
+  liveness.sh: |
+    #!/bin/bash
+    # Watchdog de liveness do Barman. Sai != 0 (kubelet REINICIA o pod) APENAS
+    # quando o barman está REALMENTE travado de um jeito que só um restart
+    # recupera — nunca durante backup em curso nem enquanto o backlog de WAL
+    # está drenando. Dois sinais de "stuck":
+    #   1) mount de dados morto: I/O no $BARMAN_HOME não responde dentro do
+    #      timeout (FUSE/JuiceFS "transport endpoint is not connected"). É o
+    #      caso recorrente que só remonta com restart do pod.
+    #   2) archive-wal empacado: backlog em streaming/ NÃO drena por
+    #      LIVENESS_STALL_CYCLES ciclos seguidos, sem nenhum backup rodando
+    #      (archive-wal preso, p.ex. D-state, segurando o lock; o `barman cron`
+    #      fica só logando "Another archive-wal process is already running").
+    # A readinessProbe (healthcheck.sh) continua reportando "WAL atrasado" —
+    # liveness só age no que restart conserta.
+    set -uo pipefail
+    BARMAN_HOME="${BARMAN_HOME:-/var/lib/barman}"
+    STATE_DIR="/tmp/barman-liveness"
+    MOUNT_TIMEOUT="${LIVENESS_MOUNT_TIMEOUT:-15}"
+    STALL_CYCLES="${LIVENESS_STALL_CYCLES:-10}"
+    mkdir -p "${STATE_DIR}" 2>/dev/null || true
+
+    # 1) Mount vivo? Probe com timeout HARD: um FUSE morto trava todo I/O.
+    if ! timeout "${MOUNT_TIMEOUT}" bash -c \
+        "cd '${BARMAN_HOME}' && : > '${BARMAN_HOME}/.liveness-probe' && rm -f '${BARMAN_HOME}/.liveness-probe'" 2>/dev/null; then
+      echo "LIVENESS FAIL: ${BARMAN_HOME} sem I/O em ${MOUNT_TIMEOUT}s (mount morto?) -> restart"
+      exit 1
+    fi
+
+    servers="$(timeout 20 barman list-server --minimal 2>/dev/null)"
+    # Sem servidores ainda = inicializando; quem cuida disso é o startupProbe.
+    [ -z "${servers}" ] && exit 0
+
+    rc=0
+    for srv in ${servers}; do
+      # Backup em curso => NUNCA reiniciar (mataria o backup). O lock de backup
+      # é .${srv}-<timestamp>.lock; o reset do contador evita falso-stall depois.
+      if ls "${BARMAN_HOME}/.${srv}-"[0-9]*.lock >/dev/null 2>&1; then
+        rm -f "${STATE_DIR}/${srv}.last" "${STATE_DIR}/${srv}.stall" 2>/dev/null || true
+        continue
+      fi
+      backlog="$(ls "${BARMAN_HOME}/${srv}/streaming/" 2>/dev/null | grep -cE '^[0-9A-F]{24}$' || true)"
+      backlog="${backlog:-0}"
+      if [ "${backlog}" -eq 0 ]; then
+        rm -f "${STATE_DIR}/${srv}.last" "${STATE_DIR}/${srv}.stall" 2>/dev/null || true
+        continue
+      fi
+      last="$(cat "${STATE_DIR}/${srv}.last" 2>/dev/null || echo -1)"
+      stall="$(cat "${STATE_DIR}/${srv}.stall" 2>/dev/null || echo 0)"
+      if [ "${last}" -ge 0 ] && [ "${backlog}" -ge "${last}" ]; then
+        stall=$((stall + 1))   # backlog não diminuiu = sem progresso
+      else
+        stall=0                # drenou (ou primeira medição) = reseta
+      fi
+      printf '%s' "${backlog}" > "${STATE_DIR}/${srv}.last"
+      printf '%s' "${stall}"   > "${STATE_DIR}/${srv}.stall"
+      if [ "${stall}" -ge "${STALL_CYCLES}" ]; then
+        echo "LIVENESS FAIL [${srv}]: backlog WAL ${backlog} parado por ${stall} ciclos, sem backup ativo (archive-wal travado) -> restart"
+        rc=1
+      fi
+    done
+    exit ${rc}
+  unlock-stale.sh: |
+    #!/bin/bash
+    # Limpeza de locks órfãos do Barman (chamada pelo cron). Remove SÓ locks de
+    # archive-wal / receive-wal / cron cujo PID gravado já morreu — assim um
+    # archive-wal que crashou não deixa o `barman cron` eternamente pulando com
+    # "Another ... process is already running". NUNCA mexe em lock de backup
+    # (.${srv}-<timestamp>.lock) nem em lock de PID vivo.
+    set -uo pipefail
+    BARMAN_HOME="${BARMAN_HOME:-/var/lib/barman}"
+    shopt -s nullglob
+    for lock in "${BARMAN_HOME}"/.*-archive-wal.lock \
+                "${BARMAN_HOME}"/.*-receive-wal.lock \
+                "${BARMAN_HOME}"/.cron.lock; do
+      # .cron.lock não tem wildcard -> nullglob não o remove se ausente
+      [ -e "${lock}" ] || continue
+      pid="$(tr -dc '0-9' < "${lock}" 2>/dev/null)"
+      [ -z "${pid}" ] && continue
+      if [ ! -d "/proc/${pid}" ]; then
+        rm -f "${lock}" 2>/dev/null \
+          && echo "unlock-stale: removido ${lock} (PID ${pid} morto)"
+      fi
+    done
+{{- end }}
 {{- end }}

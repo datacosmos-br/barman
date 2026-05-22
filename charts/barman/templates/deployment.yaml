@@ -72,6 +72,14 @@ spec:
           env:
             - name: HC_IGNORE_CHECKS
               value: {{ .Values.healthCheck.ignoreChecks | quote }}
+            {{- if .Values.healthCheck.livenessProbe.enabled }}
+            - name: BARMAN_HOME
+              value: "/var/lib/barman"
+            - name: LIVENESS_MOUNT_TIMEOUT
+              value: {{ .Values.healthCheck.livenessProbe.mountTimeoutSeconds | quote }}
+            - name: LIVENESS_STALL_CYCLES
+              value: {{ .Values.healthCheck.livenessProbe.stallCycles | quote }}
+            {{- end }}
           {{- end }}
           volumeMounts:
             - mountPath: /var/lib/barman
@@ -109,6 +117,14 @@ spec:
             - mountPath: /scripts/healthcheck.sh
               name: barman-healthcheck
               subPath: healthcheck.sh
+            {{- if .Values.healthCheck.livenessProbe.enabled }}
+            - mountPath: /scripts/liveness.sh
+              name: barman-healthcheck
+              subPath: liveness.sh
+            - mountPath: /scripts/unlock-stale.sh
+              name: barman-healthcheck
+              subPath: unlock-stale.sh
+            {{- end }}
           {{- end }}
           {{- if .Values.ssh.enabled }}
             - mountPath: /ssh-keys
@@ -138,6 +154,18 @@ spec:
             periodSeconds: {{ .Values.healthCheck.readinessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.readinessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.healthCheck.readinessProbe.failureThreshold }}
+          {{- if .Values.healthCheck.livenessProbe.enabled }}
+          # livenessProbe (watchdog): REINICIA o pod só em stuck real que só
+          # restart conserta (mount morto / archive-wal travado com backlog sem
+          # drenar e sem backup ativo). Não dispara durante backup ou drain.
+          livenessProbe:
+            exec:
+              command: ["/bin/bash", "-c", "su barman -c 'bash /scripts/liveness.sh'"]
+            initialDelaySeconds: {{ .Values.healthCheck.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.livenessProbe.failureThreshold }}
+          {{- end }}
           {{- end }}
 {{- if or .Values.deployment.initContainers .Values.dbPreflight.enabled }}
       initContainers:

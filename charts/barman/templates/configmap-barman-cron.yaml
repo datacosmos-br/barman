@@ -6,6 +6,11 @@ metadata:
     {{- include "barman.labels" . | nindent 4 }}
 data:
   barman: |
+      {{- if and .Values.healthCheck.enabled .Values.healthCheck.livenessProbe.enabled }}
+      # auto-heal: remove locks órfãos (PID morto) antes do cron, senão um
+      # archive-wal que crashou trava o cron com "Another ... already running".
+      * * * * * barman /bin/bash /scripts/unlock-stale.sh
+      {{- end }}
       # barman cron: auto-heal (mantém receive-wal/archive-wal vivos, refaz slot).
       * * * * * barman /usr/local/bin/barman cron
       {{- range .Values.barman.backups }}
