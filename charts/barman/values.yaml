@@ -162,6 +162,22 @@ healthCheck:
     periodSeconds: 60
     timeoutSeconds: 30
     failureThreshold: 3
+  # -- livenessProbe (watchdog): RESTARTS the pod only on a true stuck state a
+  # restart can fix — a dead data mount (FUSE/JuiceFS "transport endpoint not
+  # connected") or an archive-wal wedged with a non-draining WAL backlog and no
+  # backup running. NEVER fires during a backup or while the backlog is
+  # draining. Also enables the cron stale-lock cleanup (unlock-stale.sh).
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 60
+    timeoutSeconds: 30
+    failureThreshold: 3
+    # -- hard timeout (s) for the data-mount I/O probe; exceeding it = dead mount
+    mountTimeoutSeconds: 15
+    # -- consecutive non-draining cycles (no backup running) before restart;
+    # at periodSeconds=60 this is ~stallCycles minutes of a wedged archive-wal
+    stallCycles: 10
 
 dbPreflight:
   # -- Run an initContainer that validates each target PostgreSQL has the
