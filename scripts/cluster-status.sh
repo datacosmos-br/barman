@@ -8,13 +8,13 @@
 # Variáveis (override opcional):
 #   BARMAN_CONTEXTS  contexts kubectl, separados por espaço
 #                    (default: current-context do kubeconfig)
-#   BARMAN_NS        namespace do barman (default: barman)
+#   BARMAN_NS        namespace do barman (default: postgresql)
 #   WATCH            se setada, entra em modo de acompanhamento
 #   WATCH_INTERVAL   segundos entre refreshs no modo WATCH (default: 30)
 set -uo pipefail
 
 CONTEXTS="${BARMAN_CONTEXTS:-$(kubectl config current-context 2>/dev/null)}"
-NS="${BARMAN_NS:-barman}"
+NS="${BARMAN_NS:-postgresql}"
 INTERVAL="${WATCH_INTERVAL:-30}"
 
 # Snippet executado dentro do pod barman: por servidor emite uma linha
@@ -32,13 +32,14 @@ done
 snapshot() {
   printf '%-20s %-15s %-17s %-9s %-10s %-6s %-10s %s\n' \
     CLUSTER SERVER "ULTIMO BACKUP" STATUS SIZE QTD WAL HEALTH
-  printf '%.0s-' {1..110}; echo
+  printf '%.0s-' {1..110}
+  echo
   for ctx in $CONTEXTS; do
     # Uma instância Barman por servidor → vários pods por cluster.
     pods=$(kubectl --context="$ctx" -n "$NS" get pod \
-             -l app.kubernetes.io/name=barman \
-             --field-selector=status.phase=Running \
-             -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+      -l app.kubernetes.io/name=barman \
+      --field-selector=status.phase=Running \
+      -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
     if [ -z "$pods" ]; then
       printf '%-20s %s\n' "$ctx" "(sem pod barman acessivel)"
       continue
@@ -46,15 +47,16 @@ snapshot() {
     for pod in $pods; do
       kubectl --context="$ctx" -n "$NS" exec "$pod" -- \
         su barman -c "$POD_SNIPPET" 2>/dev/null \
-      | while IFS='|' read -r srv cnt health line; do
+        | while IFS='|' read -r srv cnt health line; do
           [ -z "$srv" ] && continue
-          id=$(awk '{print $2}' <<<"$line"); [ -z "$id" ] && id="-"
+          id=$(awk '{print $2}' <<<"$line")
+          [ -z "$id" ] && id="-"
           case "$line" in
-            *STARTED*)            st="STARTED" ;;
-            *EMPTY*)              st="EMPTY" ;;
-            *WAITING_FOR_WALS*)   st="WAITING" ;;
-            *Size:*)              st="DONE" ;;
-            *)                    st="NENHUM" ;;
+            *STARTED*) st="STARTED" ;;
+            *EMPTY*) st="EMPTY" ;;
+            *WAITING_FOR_WALS*) st="WAITING" ;;
+            *Size:*) st="DONE" ;;
+            *) st="NENHUM" ;;
           esac
           size=$(sed -n 's/.* - Size: \([0-9.]* [A-Za-z]*\) - WAL Size:.*/\1/p' <<<"$line")
           [ -z "$size" ] && size="-"
