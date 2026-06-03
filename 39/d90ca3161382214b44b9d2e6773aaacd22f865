@@ -1,0 +1,39 @@
+charts/barman/templates/configmap-barman-cron.yaml
+  s_8e4d6236aa43af::t_742a3e436ad4c2 9-13
+charts/barman/templates/configmap-healthcheck.yaml
+  s_8e4d6236aa43af::t_d0ecb3cb5b3522 41
+  s_8e4d6236aa43af::t_d8dbe7d4483915 42-116,119-125
+  s_8e4d6236aa43af::t_6f47f105cce164 117-118
+charts/barman/values.yaml
+  s_8e4d6236aa43af::t_ace0c58136574f 165-180
+charts/barman/templates/deployment.yaml
+  s_8e4d6236aa43af::t_56929f1d622dbd 120-127
+  s_8e4d6236aa43af::t_9ea975ce295b1e 75-82
+  s_8e4d6236aa43af::t_6b7460299e1d46 157-168
+charts/barman/Chart.yaml
+  s_08f71d669a8ff6::t_aa83024b854d21 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "39d90ca3161382214b44b9d2e6773aaacd22f865",
+  "prompts": {},
+  "sessions": {
+    "s_08f71d669a8ff6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd4bccff-602b-4499-b507-272f9fbfdede",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Marlon Costa <marlon.costa@datacosmos.com.br>"
+    },
+    "s_8e4d6236aa43af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ea35499b-1045-4260-a9a7-b858d95de180",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Marlon Costa <marlon.costa@datacosmos.com.br>"
+    }
+  }
+}
