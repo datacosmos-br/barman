@@ -1,0 +1,21 @@
+charts/barman/Chart.yaml
+  s_22b5c710640e1a::t_20c201770acbf2 5
+charts/barman/templates/deployment.yaml
+  s_22b5c710640e1a::t_2807910cc1ece9 19-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "eb343d23bdf91bb5e2eea64f08e72f5e49879caa",
+  "prompts": {},
+  "sessions": {
+    "s_22b5c710640e1a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b466ad97-6471-45be-b6f3-015bc21b71ec",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Marlon Costa <marlon.costa@datacosmos.com.br>"
+    }
+  }
+}
