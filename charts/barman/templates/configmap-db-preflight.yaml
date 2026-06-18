@@ -56,7 +56,7 @@ data:
     }
 
     {{- range .Values.barman.backups }}
-    check_db {{ .scopeName | quote }} {{ .postgresql.host | quote }} {{ .postgresql.port | default 5432 | quote }} {{ .postgresql.superUser | quote }} {{ .postgresql.superUserDatabase | default "postgres" | quote }}
+    check_db {{ .scopeName | quote }} {{ .postgresql.host | quote }} {{ .postgresql.port | default 5432 | quote }} {{ .postgresql.superUser | quote }} {{ .postgresql.superUserDatabase | required | quote }}
     {{- end }}
 
     if [ "$hard_fail" -ne 0 ]; then
